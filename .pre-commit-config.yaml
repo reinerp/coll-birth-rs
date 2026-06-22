@@ -1,0 +1,9 @@
+repos:
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+    -   id: fmt
+    # Exactly one generator feature must be enabled (a bare `cargo clippy`
+    # hits the no-generator compile_error), so pin one for the hook.
+    -   id: clippy
+        args: ["--all-targets", "--features", "incr", "--", "-D", "warnings"]

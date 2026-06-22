@@ -666,7 +666,10 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
             num_passes,
             class_sw.lap(),
             format_p_value(p_value(class_coll as f64, lambda_class), pretty_p),
-            format_p_value(p_value(total_coll as f64, classes_done * lambda_class), pretty_p),
+            format_p_value(
+                p_value(total_coll as f64, classes_done * lambda_class),
+                pretty_p
+            ),
         );
     }
     *prng = end_state;
@@ -677,8 +680,8 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
 // These integration tests need a reasonably uniform PRNG: the tradeoff buffer is
 // sized assuming points spread ~evenly over the 2^(t·b) passes. A degenerate
 // generator (e.g. incr, which maps every point to cell 0) would overflow it, so
-// the module is gated to splitmix64.
-#[cfg(all(test, feature = "splitmix64"))]
+// the module is gated to splitmix.
+#[cfg(all(test, feature = "splitmix"))]
 mod tests {
     use super::*;
     use crate::prng::Prng;

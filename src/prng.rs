@@ -18,7 +18,7 @@
 // so the rest of the crate still type-checks.
 #[cfg(not(feature = "_prng"))]
 compile_error!(
-    "no PRNG selected: enable exactly one PRNG feature, as in `--features splitmix64` \
+    "no PRNG selected: enable exactly one PRNG feature, as in `--features splitmix` \
      (see the [features] table in Cargo.toml)"
 );
 
@@ -294,17 +294,17 @@ mwc_256_64!(0xfff62cf2ccc0cdaf);
 // Unique value quantile 0.972656
 mwc_128_32!(0xfffea2df);
 
-// ----- SplitMix64 -------------------------------------------------------------------
+// ----- SplitMix -------------------------------------------------------------------
 
-#[cfg(feature = "splitmix64")]
+#[cfg(feature = "splitmix")]
 #[derive(Clone, Copy)]
 pub struct Prng {
     x: u64,
 }
 
-#[cfg(feature = "splitmix64")]
+#[cfg(feature = "splitmix")]
 impl Prng {
-    pub const NAME: &str = "SplitMix64";
+    pub const NAME: &str = "SplitMix";
     pub fn new(seed: u64) -> Self {
         Self { x: seed }
     }

@@ -630,7 +630,8 @@ impl OrbitPartition {
                 eprint!("{lbl}");
                 Stopwatch::new()
             });
-            let (snaps, end) = prescan_checkpoints(self.prescan_start, self.t, scan_len, boundaries);
+            let (snaps, end) =
+                prescan_checkpoints(self.prescan_start, self.t, scan_len, boundaries);
             self.prescan_start = end;
             if let Some(sw) = sw.as_mut() {
                 eprintln!("[{:.3}s]", sw.lap());
@@ -1680,8 +1681,8 @@ fn main() {
 // Gated away from the degenerate incr counter: these compare a parallel run to
 // the sequential one in tradeoff/decimation modes, whose buffer headroom assumes
 // ~uniform spread across residue bins. A counter that maps every sample to ~one
-// cell overflows that headroom (same rationale as the splitmix64 gate on the
-// test module). Every real generator (splitmix64, wyrand, MSWS-CTR, LCG, MWC,
+// cell overflows that headroom (same rationale as the splitmix gate on the
+// test module). Every real generator (splitmix, wyrand, MSWS-CTR, LCG, MWC,
 // Romu) exercises both the jump and pre-scan snapshot paths here.
 #[cfg(all(test, not(feature = "incr")))]
 mod parallel_faithful_tests {
