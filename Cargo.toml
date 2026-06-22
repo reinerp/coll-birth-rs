@@ -1,0 +1,62 @@
+[package]
+name = "coll-birth"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = [
+	"Sebastiano Vigna <sebastiano.vigna@unimi.it>",
+]
+description = "Large-scale collision and birthday-spacings tests for pseudorandom number generators"
+repository = "https://github.com/vigna/coll-birth-rs"
+license = "Apache-2.0 OR LGPL-2.1-or-later"
+readme = "README.md"
+categories = ["algorithms"]
+keywords = ["collision", "birthday-spacings", "prng", "testing", "statistics"]
+# documentation = "https://docs.rs/coll"
+
+[package.metadata.docs.rs]
+features = ["incr"]
+
+[dependencies]
+rayon = "1"
+clap = { version = "4.1.6", features = ["derive", "wrap_help"] }
+mmap-rs = "0.7.0"
+bytemuck = "1.13.1"
+num = { version = "0.4.0", features = ["num-bigint"] }
+voracious_radix_sort = { version = "1.2.0", features = ["rayon", "voracious_multithread"] }
+dary_heap = "0.3"
+cdflib = "0.4.2"
+log = "0.4.20"
+anyhow = "1.0.79"
+env_logger = "0.11.0"
+jiff = "0.2.15"
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+panic = "abort"
+codegen-units = 1
+
+# Each feature corresponds to a PRNG defined in the prng module. Every PRNG feature
+# enables the internal `_prng` marker, which lets the build emit a single clear error
+# (rather than a cascade of unresolved-`Prng` errors) when none is selected. Do not
+# enable `_prng` directly.
+
+[features]
+_prng = []
+mwc_128_64_0xff96d28c3f3329da = ["_prng"]
+mwc_128_64_0xffebb71d94fcdaf9 = ["_prng"]
+mwc_192_64_0xffa04e67b3c95d86 = ["_prng"]
+mwc_256_64_0xfff62cf2ccc0cdaf = ["_prng"]
+mwc_128_32_0xfffea2df = ["_prng"]
+splitmix64 = ["_prng"]
+incr = ["_prng"]
+wyrand = ["_prng"]
+romuduo = ["_prng"]
+romuduojr = ["_prng"]
+romutrio = ["_prng"]
+romutrio32 = ["_prng"]
+lcg_32_32_0xec65035 = ["_prng"]
+lcg_32_32_0x915f77f5 = ["_prng"]
+lcg_64_64_0xa5b9ee81534fa94d = ["_prng"]
+MSWS-CTR = ["_prng"]
