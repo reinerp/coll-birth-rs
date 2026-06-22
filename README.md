@@ -3,9 +3,9 @@
 This crate implements two empirical tests for pseudorandom number generators
 (PRNGs), the _collision test_ and the _birthday-spacings test_. While such tests
 are implemented by batteries of tests such as TestU01 (and, in fact, are very
-easy to implement in a naive way), we implement new algorithmic techniques that
-open the way to very large scale execution of these tests, even with a limited
-about of memory.
+easy to implement in a naive way), we implement new parallel algorithmic
+techniques that open the way to very large scale execution of these tests, even
+with a limited about of memory.
 
 The tests draw the _u_ ≤ 64 − _s_ upper bits from the 64-bit PRNG output
 shifted to the left by _s_, _t_ times, forming _t_-tuples of cell indices. If
@@ -67,7 +67,7 @@ The generator to test is selected at compilation time using Cargo features.
 For example,
 
 ```text
-cargo run --release --features splitmix -- 64 1 4000000000 -b 4 -p -P
+cargo run -r -F splitmix -- 64 1 4000000000 -b 4 -p -P
 Generator: SplitMix
 Seed: 0x18bb6e430a1df210
 Running a parallel collision test (10 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output using 48000000000 points (64-bit cells, 22.439 GiB RAM, tradeoff on 4 top bits over 16 passes)
@@ -75,9 +75,9 @@ u: 64 t: 1 cells: 18446744073709551616 expected collisions: 62.45004507969723
 Pass 1/16: gen...[10.207s] sort...[4.607s] count...[9.962s], 3000005913 points, 0 collisions, p=0.9798216130914219; combined: 3000005913 points, 0 collisions, p=0.9798216130914219
 Pass 2/16: gen...[9.916s] sort...[3.741s] count...[10.261s], 2999960789 points, 0 collisions, p=0.979819243690045; combined: 5999966702 points, 0 collisions, p=0.99959278489142
 [...]
-Pass 16/16: gen...[14.106s] sort...[4.982s] count...[13.572s], 4000045248 points, 0 collisions, p=0.9990308109630914; combined: 64000000000 points, 0 collisions, p=1 − 6.0761254074375494e-49
+Pass 16/16: gen...[12.642s] sort...[4.773s] count...[12.193s], 4000072070 points, 0 collisions, p=0.9990309011505323; combined: 64000000000 points, 0 collisions, p=1 − 6.0761254074375494e-49
 0	p=1 − 6.0761254074375494e-49	combined: 0	p=1 − 6.0761254074375494e-49
-Test completed in 496.36 seconds
+Test completed in 471.27 seconds
 0	p=1 − 6.0761254074375494e-49
 ```
 
@@ -121,16 +121,19 @@ because too many outputs end up in the same cell.
 However, if you can run large-scale collision test, a multiplier that is _too
 good_ will fail, too, as the hyperplanes are still there:
 
-```bash
+```text
+cargo run -r -F lcg_64_64_0xa5b9ee81534fa94d -- 32 2 4000000000 -b 4 -p -P
 Generator: LCG64 (0xa5b9ee81534fa94d)
-Seed: 0x18ba2f5e32070688
-Running a parallel collision test (10 CPUs, faithful split (jump-ahead)) on the upper 32 bits of the full 64-bit output using 64000000000 points (64-bit cells, 29.904 GiB live, tradeoff on 4 top bits over 16 passes)
+Seed: 0x18bb783e2bfe78f0
+Running a parallel collision test (10 CPUs, jump-ahead) on the upper 32 bits of the full 64-bit output using 64000000000 points (64-bit cells, 29.904 GiB RAM, tradeoff on 4 top bits over 16 passes)
 u: 32 t: 2 cells: 18446744073709551616 expected collisions: 111.0223023323856
-Pass 1/16: gen...[22.816s] sort...[9.282s] count...[12.440s], 3999999761 points, 0 collisions, p=0.9990306579978518; combined: 3999999761 points, 0 collisions, p=0.9990306579978518
+Pass 1/16: gen...[18.022s] sort...[5.342s] count...[11.741s], 3999990502 points, 1 collisions, p=0.992304281430322; combined: 3999990502 points, 1 collisions, p=0.992304281430322
+Pass 2/16: gen...[18.263s] sort...[4.610s] count...[12.012s], 4000000906 points, 1 collisions, p=0.9923045242213231; combined: 7999991408 points, 2 collisions, p=0.9998955354592226
 [...]
-26      p=1     combined: 26    p=1
-Test completed in 609.44 seconds
-26      p=1
+Pass 16/16: gen...[17.052s] sort...[4.359s] count...[11.932s], 4000103062 points, 1 collisions, p=0.9923069078008872; combined: 64000000000 points, 19 collisions, p=1 − 4.384243826101139e-27
+19	p=1 − 4.384243826101139e-27	combined: 19	p=1 − 4.384243826101139e-27
+Test completed in 544.79 seconds
+19	p=1 − 4.384243826101139e-27
 ```
 
 The multiplier, for 64-bit ACGs with 64 bits of state, has been found during the
