@@ -10,9 +10,8 @@ description = "Large-scale collision and birthday-spacings tests for pseudorando
 repository = "https://github.com/vigna/coll-birth-rs"
 license = "Apache-2.0 OR LGPL-2.1-or-later"
 readme = "README.md"
-categories = ["algorithms"]
+categories = ["algorithms", "mathematics", "command-line-utilities"]
 keywords = ["collision", "birthday-spacings", "prng", "testing", "statistics"]
-# documentation = "https://docs.rs/coll"
 
 [package.metadata.docs.rs]
 features = ["incr"]

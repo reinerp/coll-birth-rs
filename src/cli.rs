@@ -53,7 +53,7 @@ pub struct Args {
     #[arg(short = 'S', long)]
     pub seed: Option<u64>,
 
-    /// Print p-values close to 1 in the form `1-ε`.​
+    /// Print p-values close to 1 in the form `1 − ε`.​
     #[arg(short = 'p', long)]
     pub pretty_p: bool,
 

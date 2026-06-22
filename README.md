@@ -35,7 +35,8 @@ _m_, the (approximate) number of memory locations to use. Then,
 
 - the number of points is approximately _m_ · 2*ᵇ*;
 
-- the number of samples from the orbit of the generator is _m_ · 2*ᵇ* · 2*ᵗᵈ* (each _t_-tuple costs _t_ calls);
+- the number of samples from the orbit of the generator is _m_ · 2*ᵇ* · 2*ᵗᵈ*
+  (each _t_-tuple costs _t_ calls);
 
 - for the collision test, the number of calls to the generator is _t_ · _m_ ·
   (2*ᵇ*)² · 2*ᵗᵈ*;
@@ -56,50 +57,69 @@ parallel: the part of the orbit that need to be generated is split into
 segments, and each core generate a segment. If the PRNG supports skipping, the
 starting states for each segment are computed using skipping. If no skipping is
 available, parallel generation is used only in case of tradeoffs, as even with 2
-processors and one tradeoff bits enumerating the part of the orbit to find the
-initial state of each segment breaks even, and with more processor it becomes
-competitive.
+processors and one tradeoff bit enumerating the relevant part of the orbit to
+find the initial state of each segment breaks even, and with more processor it
+becomes competitive.
 
 # Usage
 
 The generator to test is selected at compilation time using Cargo features.
 For example,
 
-```
-cargo run --release --features splitmix -- 64 1 4000000000 -b 3 -P
+```text
+cargo run --release --features splitmix -- 64 1 4000000000 -b 4 -p -P
+Generator: SplitMix
+Seed: 0x18bb6e430a1df210
+Running a parallel collision test (10 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output using 48000000000 points (64-bit cells, 22.439 GiB RAM, tradeoff on 4 top bits over 16 passes)
+u: 64 t: 1 cells: 18446744073709551616 expected collisions: 62.45004507969723
+Pass 1/16: gen...[10.207s] sort...[4.607s] count...[9.962s], 3000005913 points, 0 collisions, p=0.9798216130914219; combined: 3000005913 points, 0 collisions, p=0.9798216130914219
+Pass 2/16: gen...[9.916s] sort...[3.741s] count...[10.261s], 2999960789 points, 0 collisions, p=0.979819243690045; combined: 5999966702 points, 0 collisions, p=0.99959278489142
+[...]
+Pass 16/16: gen...[14.106s] sort...[4.982s] count...[13.572s], 4000045248 points, 0 collisions, p=0.9990308109630914; combined: 64000000000 points, 0 collisions, p=1 − 6.0761254074375494e-49
+0	p=1 − 6.0761254074375494e-49	combined: 0	p=1 − 6.0761254074375494e-49
+Test completed in 496.36 seconds
+0	p=1 − 6.0761254074375494e-49
 ```
 
-will test SplitMi using about 29.9 GiB of RAM, using four tradeoff bits and parallel generations.
+will test SplitMi using about 29.9 GiB of RAM, using four tradeoff bits and
+parallel generations. Note at each tradeoff pass is interpretable as a
+decimation, and each prefix of tradeoff passes as a multi-target decimation, so
+corresponding _p_-values are output, helping to see where the computation is
+going. Since we were expecting _p_-values close to one, we used the pretty-printing option
+`-p` to switch to a more accurate display.
 
-. To add a new generator, add a feature in `Cargo.toml`
-and a corresponding implementation in the [`prng`] module.
+# Adding
+
+To add a new generator, add a feature in `Cargo.toml` and a corresponding
+implementation in the [`prng`] module. If skipping is possible, you can
+implement the `try_skip` method.
 
 # Example: WyRand
 
-WyRand is a simple 64-bit generator with 64 bits of state. It increments a counter and
+[WyRand] is a simple 64-bit generator with 64 bits of state. It increments a counter and
 apply a hash using ideas from [Wyhash]. While the generator passes all common statistical
-tests, the hash is not sufficient to hide the bias towards collisions:
+tests, the hash is not sufficient to hide the bias from a large-scale collision test:
 
 ```bash
 
 ```
 
-# Example: an affine congruential generator that is _too good_
+# Example: a linear congruential generator that is _too good_
 
-Multipliers for affine congruential generators (AGC, erroneously called linear,
-so, LCG, since ever) are judged on the basis of the _spectral test_, which
-computes the distance between hyperplanes spanned by vectors of consecutive
-outputs. It is a staple of the literature on the topic since the 60's that you
-should strive for the smallest possible distance, to which one associates a
-large _figure of merit_. A large body of research has studied spectral scores,
-and studied how to obtain multipliers with large figures of merit. Less known is
-that figures of merit have nothing to do with the randomness of the output of
-the generator—they just describe its _uniformity_. If a multiplier is not
-uniform enough, it will fail collision test because too many outputs end up in
-the same cell.
+Multipliers for linear congruential generators (LCG—incidentally, the name is
+wrong since ever, since they are _affine_, not _linear_) are judged on the basis
+of the _spectral test_, which computes the distance between hyperplanes spanned
+by vectors of consecutive outputs. It is a staple of the literature on the topic
+since the 60's that you should strive for the smallest possible distance, to
+which one associates a large _figure of merit_. A large body of research has
+studied spectral scores, and studied how to obtain multipliers with large
+figures of merit. Less known is that figures of merit have nothing to do with
+the randomness of the output of the generator—they just describe its
+_uniformity_. If a multiplier is not uniform enough, it will fail collision test
+because too many outputs end up in the same cell.
 
 However, if you can run large-scale collision test, a multiplier that is _too
-good_ will fail, too:
+good_ will fail, too, as the hyperplanes are still there:
 
 ```bash
 Generator: LCG64 (0xa5b9ee81534fa94d)
