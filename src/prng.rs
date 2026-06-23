@@ -681,14 +681,14 @@ impl Prng {
         let y = x;
         let z = y.wrapping_add(0x9e3779b97f4a7c15);
         let mut x = x.wrapping_mul(x).wrapping_add(y);
-        x = (x >> 32) | (x << 32); // round 1
+        x = x.rotate_left(32); // round 1
         x = x.wrapping_mul(x).wrapping_add(z);
-        x = (x >> 32) | (x << 32); // round 2
+        x = x.rotate_left(32); // round 2
         x = x.wrapping_mul(x).wrapping_add(y);
-        x = (x >> 32) | (x << 32); // round 3
+        x = x.rotate_left(32); // round 3
         x = x.wrapping_mul(x).wrapping_add(z);
         let t = x;
-        x = (x >> 32) | (x << 32); // round 4
+        x = x.rotate_left(32); // round 4
         t ^ (x.wrapping_mul(x).wrapping_add(y) >> 32) // round 5
     }
 
