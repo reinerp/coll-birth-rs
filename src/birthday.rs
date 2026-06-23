@@ -10,7 +10,6 @@
 
 use std::mem::size_of;
 
-use mmap_rs::MmapMut;
 use num::BigUint;
 use num::traits::ToPrimitive;
 use rayon::prelude::*;
@@ -19,7 +18,7 @@ use crate::cell::Cell;
 use crate::cli::Args;
 use crate::common::{
     GridParams, OrbitPartition, alloc_mmap, bin_overflow, bits_read_desc, buffer_size,
-    count_adjacent_equals, decimation_desc, gen_pass_dispatch, join_mode_parts, scan_samples,
+    count_adjacent_equals, decimation_desc, gen_unit_contiguous, join_mode_parts, scan_samples,
     test_lambda,
 };
 use crate::prng::Prng;
@@ -385,7 +384,10 @@ pub fn run_birthday_parallel<T: Cell>(
     let chunk = |i: usize| base_chunk + if i < rem { 1 } else { 0 };
 
     let block_cap = |i: usize| buffer_size(chunk(i), partition_bits).max(1);
-    let interval_cap = buffer_size(scan_total, partition_bits).max(1);
+    // Per-thread sub-region capacities of the one contiguous interval buffer; their
+    // prefix sums are the sub-region starts gen_unit_contiguous writes and compacts.
+    let caps: Box<[usize]> = (0..num_cpus).map(block_cap).collect();
+    let interval_cap: usize = caps.iter().sum();
     let class_cap = buffer_size(points, b).max(1);
 
     let params = GridParams {
@@ -414,9 +416,9 @@ pub fn run_birthday_parallel<T: Cell>(
     }
     let mode_suffix = join_mode_parts(&mode_parts);
 
-    // Live memory: the per-thread interval blocks plus the shared interval and
-    // class buffers, all resident together within a repetition.
-    let live_elems: usize = (0..num_cpus).map(block_cap).sum::<usize>() + interval_cap + class_cap;
+    // Live memory: the one contiguous interval buffer plus the class buffer, both
+    // resident together within a repetition.
+    let live_elems: usize = interval_cap + class_cap;
 
     eprintln!(
         "Running a parallel birthday-spacings test ({} CPUs, {}) on the upper {} bits of the {} \
@@ -442,9 +444,6 @@ pub fn run_birthday_parallel<T: Cell>(
     let cells_f64 = cells.to_f64().unwrap();
 
     for rep in 1..=args.reps {
-        let mut blocks: Vec<MmapMut> = (0..num_cpus)
-            .map(|i| alloc_mmap::<T>(block_cap(i)))
-            .collect();
         let mut interval_buf = alloc_mmap::<T>(interval_cap);
         let mut class_buf = alloc_mmap::<T>(class_cap);
 
@@ -492,29 +491,13 @@ pub fn run_birthday_parallel<T: Cell>(
                     k + 1,
                     num_passes
                 );
-                // Phase 1: faithful parallel generation of interval k's points.
-                let lens: Box<[usize]> = std::thread::scope(|scope| {
-                    let handles: Vec<_> = blocks
-                        .iter_mut()
-                        .enumerate()
-                        .zip(snapshots.iter())
-                        .map(|((i, mapped), snap)| {
-                            let snap = *snap;
-                            let params = &params;
-                            let stream_len = chunk(i);
-                            scope.spawn(move || {
-                                let buf: &mut [T] = bytemuck::try_cast_slice_mut(mapped).unwrap();
-                                let (len, _) = gen_pass_dispatch::<T>(
-                                    snap, params, buf, stream_len, k, b, decimating, full,
-                                );
-                                len
-                            })
-                        })
-                        .collect();
-                    handles.into_iter().map(|h| h.join().unwrap()).collect()
-                });
-
-                let total: usize = lens.iter().sum();
+                // Phase 1: faithful parallel generation of interval k into one
+                // contiguous buffer — threads fill disjoint sub-regions, then the gaps
+                // left by under-filled sub-regions are compacted away.
+                let unit: &mut [T] = bytemuck::try_cast_slice_mut(&mut interval_buf).unwrap();
+                let total = gen_unit_contiguous::<T>(
+                    unit, &caps, &snapshots, &params, &chunk, k, b, decimating, full,
+                );
                 // Each kept point lies in exactly one value interval, so summing
                 // the intervals of one distance sweep (the first executed) counts the
                 // points; pass_lo is 0 for a full run and K for a single-pass run.
@@ -525,38 +508,8 @@ pub fn run_birthday_parallel<T: Cell>(
                     eprintln!("[{:.3}s] empty", isw.lap());
                     continue;
                 }
-                // Each block respects its own headroom, but their sum can exceed the
-                // interval buffer's (smaller) global headroom; check before slicing.
-                if total > interval_cap {
-                    bin_overflow("a birthday value interval");
-                }
                 eprint!("[{:.3}s] sort...", isw.lap());
-                // Gather the per-thread blocks into one contiguous interval buffer,
-                // in parallel: split the buffer into disjoint prefix-sum slots and
-                // let each thread copy its own block into its slot.
-                {
-                    let interval: &mut [T] =
-                        &mut bytemuck::try_cast_slice_mut(&mut interval_buf).unwrap()[..total];
-                    let mut rest = interval;
-                    let mut dsts: Vec<&mut [T]> = Vec::with_capacity(num_cpus);
-                    for &len in &lens {
-                        let (head, tail) = rest.split_at_mut(len);
-                        dsts.push(head);
-                        rest = tail;
-                    }
-                    let dsts = dsts.into_boxed_slice();
-                    std::thread::scope(|scope| {
-                        for (i, dst) in dsts.into_iter().enumerate() {
-                            let block = &blocks[i];
-                            scope.spawn(move || {
-                                let src: &[T] = &bytemuck::cast_slice(block.as_ref())[..dst.len()];
-                                dst.copy_from_slice(src);
-                            });
-                        }
-                    });
-                }
-                let interval: &mut [T] =
-                    &mut bytemuck::try_cast_slice_mut(&mut interval_buf).unwrap()[..total];
+                let interval: &mut [T] = &mut unit[..total];
                 T::sort_mt(interval);
                 let interval_max = interval[total - 1];
                 if global_min.is_none() {

@@ -7,25 +7,21 @@
 //! The collision test: sequential runners (plain, tradeoff, decimation) and the
 //! faithful parallel runner [`run_test_parallel`].
 
-use std::cmp::Reverse;
 use std::mem::size_of;
 
-use dary_heap::QuaternaryHeap;
-use mmap_rs::MmapMut;
 use num::BigUint;
 use num::traits::ToPrimitive;
-use rayon::prelude::*;
 
 use crate::cell::Cell;
 use crate::cli::Args;
 use crate::common::{
     GridParams, OrbitPartition, alloc_mmap, bin_overflow, bits_read_desc, buffer_size,
-    count_adjacent_equals, decimation_desc, effective_cells_suffix, gen_pass_dispatch,
+    count_adjacent_equals, decimation_desc, effective_cells_suffix, gen_unit_contiguous,
     join_mode_parts, merge_into, scan_samples, test_lambda,
 };
 use crate::prng::Prng;
 use crate::stats::{expected_collisions, format_p_value, p_value};
-use crate::util::{Stopwatch, parallelism};
+use crate::util::Stopwatch;
 
 /// Runs a collision test.
 ///
@@ -278,117 +274,6 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
     (c, len)
 }
 
-/// Counts adjacent-equal elements across *p* sorted slices, as if they were
-/// merged into one sorted sequence: the union's collision count equals the
-/// number of adjacent-equal pairs in its sorted order.
-///
-/// The work is parallelized by cutting the value domain into segments at *value*
-/// boundaries, so every copy of a value lands in the same segment and the
-/// per-segment counts sum to the exact total with no boundary correction (the
-/// last element of a segment is strictly below the first element of the next).
-/// Splitters are sampled from the largest slice's quantiles; for the ~uniform
-/// cell values of this test that balances the segments, and correctness holds
-/// for any monotone choice of splitters.
-pub(crate) fn merge_count_collisions<T: Cell>(sorted: &[&[T]]) -> usize {
-    let n_total: usize = sorted.iter().map(|s| s.len()).sum();
-    // Aim for several segments per thread for load balancing.
-    let num_segs = (parallelism() * 4).min(n_total.max(1));
-    merge_count_collisions_segmented(sorted, num_segs)
-}
-
-/// Implementation of [`merge_count_collisions`] with an explicit segment count
-/// (factored out so tests can drive the value-partitioning path deterministically
-/// regardless of the host's core count).
-pub(crate) fn merge_count_collisions_segmented<T: Cell>(sorted: &[&[T]], num_segs: usize) -> usize {
-    let n_total: usize = sorted.iter().map(|s| s.len()).sum();
-    let num_segs = num_segs.min(n_total);
-    if num_segs <= 1 {
-        return merge_count_segment(sorted);
-    }
-
-    // Splitter values from the largest slice's evenly spaced quantiles.
-    let pivot = sorted.iter().copied().max_by_key(|s| s.len()).unwrap();
-    let splitters: Vec<T> = (1..num_segs)
-        .map(|k| pivot[(pivot.len() * k) / num_segs])
-        .collect();
-
-    // Segment seg holds values in [splitters[seg-1], splitters[seg]), with
-    // open ends at the extremes; each slice's sub-range is found by binary search.
-    (0..num_segs)
-        .into_par_iter()
-        .map(|seg| {
-            let subs: Vec<&[T]> = sorted
-                .iter()
-                .map(|s| {
-                    let start = if seg == 0 {
-                        0
-                    } else {
-                        s.partition_point(|v| *v < splitters[seg - 1])
-                    };
-                    let end = if seg == num_segs - 1 {
-                        s.len()
-                    } else {
-                        s.partition_point(|v| *v < splitters[seg])
-                    };
-                    &s[start..end]
-                })
-                .collect();
-            merge_count_segment(&subs)
-        })
-        .sum()
-}
-
-/// Serial k-way merge of *p* sorted slices using a quaternary min-heap, counting
-/// adjacent-equal pairs. Each heap entry is `(value, stream_index)`; we pop the
-/// minimum, advance that stream, and check whether consecutive pops are equal.
-fn merge_count_segment<T: Cell>(sorted: &[&[T]]) -> usize {
-    let mut heap: QuaternaryHeap<Reverse<(T, usize)>> = QuaternaryHeap::new();
-    let mut pos = vec![0usize; sorted.len()];
-    for (i, s) in sorted.iter().enumerate() {
-        if !s.is_empty() {
-            heap.push(Reverse((s[0], i)));
-            pos[i] = 1;
-        }
-    }
-    let mut collisions = 0usize;
-    let mut prev: Option<T> = None;
-    while let Some(Reverse((val, i))) = heap.pop() {
-        if prev == Some(val) {
-            collisions += 1;
-        }
-        prev = Some(val);
-        if pos[i] < sorted[i].len() {
-            heap.push(Reverse((sorted[i][pos[i]], i)));
-            pos[i] += 1;
-        }
-    }
-    collisions
-}
-
-/// K-way merge of sorted slices into one sorted `Vec` (no counting). Used by the
-/// parallel checkpoint path to fold a stage's per-thread sorted sub-buffers into a
-/// single sorted run before merging it into the cumulative buffer.
-pub(crate) fn merge_sorted<T: Cell>(sorted: &[&[T]]) -> Vec<T> {
-    let total: usize = sorted.iter().map(|s| s.len()).sum();
-    let mut out = Vec::with_capacity(total);
-    let mut heap: QuaternaryHeap<Reverse<(T, usize)>> = QuaternaryHeap::new();
-    let mut pos = vec![0usize; sorted.len()];
-    for (i, s) in sorted.iter().enumerate() {
-        if !s.is_empty() {
-            heap.push(Reverse((s[0], i)));
-            pos[i] = 1;
-        }
-    }
-    while let Some(Reverse((val, i))) = heap.pop() {
-        out.push(val);
-        if pos[i] < sorted[i].len() {
-            heap.push(Reverse((sorted[i][pos[i]], i)));
-            pos[i] += 1;
-        }
-    }
-    out
-}
-
 /// Parallel version of the collision test.
 ///
 /// The sequential orbit segment of a pass (`scan_total` samples) is split into
@@ -509,11 +394,13 @@ pub fn run_test_parallel<T: Cell>(
         let acc_cap = buffer_size(scan_total, partition_bits);
         let max_stage = scan_total.div_ceil(num_checkpoints);
         let thread_cap = buffer_size(max_stage.div_ceil(num_cpus) + 1, partition_bits).max(1);
+        // Uniform per-thread sub-region capacities of the one contiguous stage buffer.
+        let stage_caps: Box<[usize]> = vec![thread_cap; num_cpus].into_boxed_slice();
+        let stage_buf_len = thread_cap * num_cpus;
         for rep in 1..=args.reps {
             let mut acc = alloc_mmap::<T>(acc_cap);
             let mut acc_len = 0usize;
-            let mut bufs: Vec<MmapMut> =
-                (0..num_cpus).map(|_| alloc_mmap::<T>(thread_cap)).collect();
+            let mut stage_mmap = alloc_mmap::<T>(stage_buf_len);
             let mut scanned = 0usize;
             let mut c = 0usize;
             for k in 1..=num_checkpoints {
@@ -531,53 +418,30 @@ pub fn run_test_parallel<T: Cell>(
                 let snapshots =
                     partition.snapshots((rep - 1) * scan_total + scanned, stage, &boundaries, None);
 
-                // Phase 1 — each thread scans its stage sub-range (decimation, no tradeoff).
-                let results: Box<[(usize, Prng)]> = std::thread::scope(|scope| {
-                    let handles: Vec<_> = bufs
-                        .iter_mut()
-                        .enumerate()
-                        .zip(snapshots.iter())
-                        .map(|((i, mapped), snap)| {
-                            let params = &params;
-                            let snap = *snap;
-                            let sl = schunk(i);
-                            scope.spawn(move || {
-                                let buf: &mut [T] = bytemuck::try_cast_slice_mut(mapped).unwrap();
-                                gen_pass_dispatch::<T>(snap, params, buf, sl, 0, 0, true, full)
-                            })
-                        })
-                        .collect();
-                    handles.into_iter().map(|h| h.join().unwrap()).collect()
-                });
+                let stage_buf: &mut [T] = bytemuck::try_cast_slice_mut(&mut stage_mmap).unwrap();
+
+                // Phase 1 — generate this stage into one contiguous buffer (decimation,
+                // no tradeoff): threads fill disjoint sub-regions, gaps compacted away.
+                let stage_len = gen_unit_contiguous::<T>(
+                    stage_buf, &stage_caps, &snapshots, &params, &schunk, 0, 0, true, full,
+                );
                 eprint!("[{:.3}s] sort...", psw.lap());
 
-                // Phase 2 — sort each thread's prefix, one buffer at a time with the
-                // multithreaded sort (see the main pass loop: num_cpus concurrent
-                // single-threaded sorts serialize on the glibc malloc arena lock).
-                for (mapped, (used, _)) in bufs.iter_mut().zip(&results) {
-                    let buf: &mut [T] = bytemuck::try_cast_slice_mut(mapped).unwrap();
-                    T::sort_mt(&mut buf[..*used]);
-                }
+                // Phase 2 — sort the contiguous stage run.
+                T::sort_mt(&mut stage_buf[..stage_len]);
                 eprint!("[{:.3}s] merge...", psw.lap());
 
-                // Merge the per-thread sorted sub-buffers and fold into the cumulative buffer.
-                let slices: Box<[&[T]]> = bufs
-                    .iter()
-                    .zip(&results)
-                    .map(|(m, (used, _))| {
-                        let all: &[T] = bytemuck::cast_slice(m.as_ref());
-                        &all[..*used]
-                    })
-                    .collect();
-                let stage_run = merge_sorted::<T>(&slices);
+                // Fold the sorted stage run into the cumulative sorted accumulator with a
+                // two-way merge (no heap); the accumulator stays sorted so each
+                // checkpoint count is a linear scan.
                 let acc_slice: &mut [T] = bytemuck::try_cast_slice_mut(&mut acc).unwrap();
                 // The cumulative kept count is itself headroom-bounded; check before
                 // the merge writes past the end of the accumulator.
-                if acc_len + stage_run.len() > acc_slice.len() {
+                if acc_len + stage_len > acc_slice.len() {
                     bin_overflow("the checkpoint accumulator");
                 }
-                merge_into(acc_slice, acc_len, &stage_run);
-                acc_len += stage_run.len();
+                merge_into(acc_slice, acc_len, &stage_buf[..stage_len]);
+                acc_len += stage_len;
                 scanned = target_scanned;
                 eprint!("[{:.3}s] count...", psw.lap());
 
@@ -605,10 +469,15 @@ pub fn run_test_parallel<T: Cell>(
         return (tot, lambda_sum);
     }
 
+    // Per-thread sub-region capacities of the one big buffer; their prefix sums
+    // are the sub-region starts that gen_unit_contiguous writes into and compacts.
+    let caps: Box<[usize]> = (0..num_cpus).map(buf_len).collect();
+
     for rep in 1..=args.reps {
-        // Per-thread buffers (sized to each thread's own chunk), reused across
-        // every pass of this repetition.
-        let mut bufs: Vec<MmapMut> = (0..num_cpus).map(|i| alloc_mmap::<T>(buf_len(i))).collect();
+        // One contiguous buffer (sized Σ caps == total_buf), reused across every
+        // pass of this repetition: threads fill disjoint sub-regions, the gaps are
+        // compacted away, then one sort + one linear count serve the whole pass.
+        let mut buf_mmap = alloc_mmap::<T>(total_buf);
 
         // Per-thread orbit starts for this rep (jump-ahead or chained pre-scan).
         let snapshots = partition.rep_snapshots(rep);
@@ -627,58 +496,27 @@ pub fn run_test_parallel<T: Cell>(
             let mut psw = Stopwatch::new();
             eprint!("Pass {}/{}: gen...", pass + 1, num_passes);
 
-            // Phase 1 — generate (no sort): each thread fills its buffer from its
-            // own orbit snapshot and reports how many it kept plus its next orbit
-            // position. The mutable borrow of bufs ends with the scope.
-            let results: Box<[(usize, Prng)]> = std::thread::scope(|scope| {
-                let handles: Vec<_> = bufs
-                    .iter_mut()
-                    .enumerate()
-                    .zip(snapshots.iter())
-                    .map(|((i, mapped), snap)| {
-                        let params = &params;
-                        let snap = *snap;
-                        let stream_len = chunk(i);
-                        scope.spawn(move || {
-                            let buf: &mut [T] = bytemuck::try_cast_slice_mut(mapped).unwrap();
-                            gen_pass_dispatch::<T>(
-                                snap, params, buf, stream_len, pass, tradeoff_b, decimating, full,
-                            )
-                        })
-                    })
-                    .collect();
-                handles.into_iter().map(|h| h.join().unwrap()).collect()
-            });
+            let buf: &mut [T] = bytemuck::try_cast_slice_mut(&mut buf_mmap).unwrap();
+
+            // Phase 1 — generate into one contiguous buffer: each thread fills its
+            // own disjoint sub-region from its orbit snapshot, then the gaps left by
+            // under-filled sub-regions are compacted away (a no-op in plain mode,
+            // where every thread keeps exactly its chunk).
+            let pass_points = gen_unit_contiguous::<T>(
+                buf, &caps, &snapshots, &params, &chunk, pass, tradeoff_b, decimating, full,
+            );
             eprint!("[{:.3}s] sort...", psw.lap());
 
-            // Phase 2 — sort each thread's prefix, one buffer at a time with the
-            // multithreaded sort. Running num_cpus single-threaded sorts concurrently
-            // instead serializes them on the glibc malloc arena lock: ska_sort
-            // reallocs a bucket array per recursion node, and num_cpus threads doing
-            // that at once spend essentially all their time in __lll_lock (≈100% sys,
-            // no progress). One sort at a time uses every core on a single buffer and
-            // touches the allocator far less; sort_mt is in-place, so peak RSS is unchanged.
-            for (mapped, (used, _)) in bufs.iter_mut().zip(&results) {
-                let buf: &mut [T] = bytemuck::try_cast_slice_mut(mapped).unwrap();
-                T::sort_mt(&mut buf[..*used]);
-            }
+            // Phase 2 — one sort over the whole contiguous unit.
+            T::sort_mt(&mut buf[..pass_points]);
             eprint!("[{:.3}s] count...", psw.lap());
 
-            // Phase 3 — count: k-way merge across the sorted per-thread buffers,
-            // so collisions that span two threads are counted too.
-            let slices: Box<[&[T]]> = bufs
-                .iter()
-                .zip(&results)
-                .map(|(m, (used, _))| {
-                    let all: &[T] = bytemuck::cast_slice(m.as_ref());
-                    &all[..*used]
-                })
-                .collect();
-            let c = merge_count_collisions::<T>(&slices);
+            // Phase 3 — one linear scan; the union is already contiguous and sorted,
+            // so collisions spanning former thread boundaries are counted too.
+            let c = count_adjacent_equals(&buf[..pass_points]);
 
             // Per-pass and cumulative statistics, formatted exactly like the
             // sequential run_collision_tradeoff per-pass line.
-            let pass_points: usize = results.iter().map(|(used, _)| *used).sum();
             total_points += pass_points;
             rep_coll += c;
             let lambda_pass = expected_collisions(pass_points as f64, cells_per_pass);
@@ -706,80 +544,4 @@ pub fn run_test_parallel<T: Cell>(
     }
     eprintln!("Test completed in {:.2} seconds", sw.lap());
     (tot, lambda_sum)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Reference: concatenate, sort, and count adjacent-equal pairs directly.
-    fn brute(slices: &[&[u64]]) -> usize {
-        let mut all: Vec<u64> = slices.iter().flat_map(|s| s.iter().copied()).collect();
-        all.sort_unstable();
-        all.windows(2).filter(|w| w[0] == w[1]).count()
-    }
-
-    /// The segmented parallel merge must match the brute-force count for every
-    /// segment count, including the awkward cases where equal values straddle a
-    /// would-be splitter and where sub-ranges come out empty.
-    #[test]
-    fn segmented_merge_matches_brute_force() {
-        // Small value range relative to the element count forces many duplicates
-        // (hence collisions) and guarantees splitters land on repeated values.
-        // xoroshiro128+, used only to vary the test data.
-        let mut s0 = 0x1234_5678_9abc_def0u64;
-        let mut s1 = 0x9e37_79b9_7f4a_7c15u64;
-        let mut next = || {
-            let result = s0.wrapping_add(s1);
-            s1 ^= s0;
-            s0 = s0.rotate_left(24) ^ s1 ^ (s1 << 16);
-            s1 = s1.rotate_left(37);
-            result
-        };
-
-        for &p in &[1usize, 2, 3, 5, 16] {
-            for &range in &[4u64, 64, 1000, 100_000] {
-                // Build p sorted slices of random length.
-                let slices_owned: Vec<Vec<u64>> = (0..p)
-                    .map(|_| {
-                        let len = (next() % 500) as usize;
-                        let mut v: Vec<u64> = (0..len).map(|_| next() % range).collect();
-                        v.sort_unstable();
-                        v
-                    })
-                    .collect();
-                let slices: Vec<&[u64]> = slices_owned.iter().map(|v| v.as_slice()).collect();
-
-                let expected = brute(&slices);
-                // Exercise the serial path and several explicit segment counts,
-                // including more segments than elements.
-                for &segs in &[0usize, 1, 2, 7, 50, 100_000] {
-                    let got = merge_count_collisions_segmented(&slices, segs);
-                    assert_eq!(
-                        got, expected,
-                        "p={p} range={range} segs={segs}: got {got}, expected {expected}"
-                    );
-                }
-                // The production entry point (machine-chosen segment count).
-                assert_eq!(merge_count_collisions(&slices), expected);
-            }
-        }
-    }
-
-    #[test]
-    fn segmented_merge_edge_cases() {
-        let empty: Vec<&[u64]> = vec![];
-        assert_eq!(merge_count_collisions(&empty), 0);
-
-        let all_empty: Vec<&[u64]> = vec![&[], &[], &[]];
-        assert_eq!(merge_count_collisions(&all_empty), 0);
-
-        // Every element identical and spread across slices: collisions = n - 1.
-        let a = [7u64; 5];
-        let b = [7u64; 3];
-        let slices: Vec<&[u64]> = vec![&a, &b];
-        for segs in 0..=10 {
-            assert_eq!(merge_count_collisions_segmented(&slices, segs), 7);
-        }
-    }
 }

@@ -461,6 +461,83 @@ pub(crate) fn gen_pass_dispatch<T: Cell>(
     }
 }
 
+/// Close the gaps left by under-filled per-thread sub-regions, in place.
+///
+/// `buf` is partitioned into `caps[i]`-sized sub-regions (sub-region `i` begins at
+/// the prefix sum of `caps[..i]`); thread `i` wrote `used[i] ≤ caps[i]` kept points
+/// into the front of its sub-region. This shifts each block left to close the gaps,
+/// leaving the kept points contiguous in `buf[..total]`, and returns `total = Σ used`.
+///
+/// Every destination is ≤ its source (since `Σ used ≤ Σ caps`), so the moves are
+/// leftward; performed left to right, block `i`'s destination ends at the start of
+/// block `i+1`'s still-untouched source and block `i−1` has already vacated, so no
+/// move clobbers an unread source. `copy_within` covers the intra-block overlap. In
+/// plain mode `used[i] == caps[i]`, every destination equals its source, and this is
+/// a no-op.
+fn compact_blocks<T: Cell>(buf: &mut [T], caps: &[usize], used: &[usize]) -> usize {
+    debug_assert_eq!(caps.len(), used.len());
+    let mut src_base = 0usize;
+    let mut dst = 0usize;
+    for (&cap, &len) in caps.iter().zip(used) {
+        debug_assert!(len <= cap);
+        if dst != src_base {
+            buf.copy_within(src_base..src_base + len, dst);
+        }
+        dst += len;
+        src_base += cap;
+    }
+    dst
+}
+
+/// Faithfully generate one work-unit's points into a single contiguous buffer.
+///
+/// Threads fill disjoint `caps`-sized sub-regions of `buf` from their orbit
+/// `snapshots` (via [`gen_pass_dispatch`]); the gaps left by under-filled
+/// sub-regions are then closed in place by [`compact_blocks`]. Returns `total_used`;
+/// on return `buf[..total_used]` holds the kept points (unsorted) so that a single
+/// [`Cell::sort_mt`] + linear [`count_adjacent_equals`] serves both tests — replacing
+/// the per-thread buffers + k-way merge the parallel collision runner used before.
+///
+/// `buf.len()` must be at least `Σ caps`; each `caps[i]` is the headroom-sized
+/// capacity of thread `i`'s sub-region and `chunk(i)` its sample-stream length.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gen_unit_contiguous<T: Cell>(
+    buf: &mut [T],
+    caps: &[usize],
+    snapshots: &[Prng],
+    params: &GridParams,
+    chunk: impl Fn(usize) -> usize,
+    pass: u64,
+    tradeoff_b: usize,
+    decimating: bool,
+    full: bool,
+) -> usize {
+    let num_cpus = caps.len();
+    debug_assert_eq!(snapshots.len(), num_cpus);
+
+    // Phase 1 — each thread generates into its own disjoint sub-region.
+    let used: Box<[usize]> = std::thread::scope(|scope| {
+        let mut rest = &mut buf[..];
+        let mut handles = Vec::with_capacity(num_cpus);
+        for (i, &cap) in caps.iter().enumerate() {
+            let (region, tail) = rest.split_at_mut(cap);
+            rest = tail;
+            let snap = snapshots[i];
+            let stream_len = chunk(i);
+            handles.push(scope.spawn(move || {
+                gen_pass_dispatch::<T>(
+                    snap, params, region, stream_len, pass, tradeoff_b, decimating, full,
+                )
+                .0
+            }));
+        }
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    // Phase 2 — close the gaps so the kept points are contiguous.
+    compact_blocks(buf, caps, &used)
+}
+
 /// Generate (no sort) one plain pass: `points` fresh draws into `buf`. Returns
 /// the number written (`points`); `prng` is advanced in place to the thread's
 /// next orbit position. Sorting is done as a separate phase by the caller so it
@@ -906,5 +983,47 @@ mod prescan_tests {
         let mut e = end;
         let expected_end = seed.wrapping_add((total * t) as u64).wrapping_add(1);
         assert_eq!(e.next_u64(), expected_end, "chained end state landed wrong");
+    }
+}
+
+// Pure compaction (no PRNG): every block's destination is the prefix sum of the
+// used counts, so the result is exactly the concatenation of the kept prefixes.
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    /// Lay sentinel-padded blocks into a buffer of capacity `Σ caps`, run
+    /// `compact_blocks`, and check the kept prefixes come out concatenated.
+    fn check(caps: &[usize], used: &[usize]) {
+        let cap_total: usize = caps.iter().sum();
+        // Each kept slot of block i carries a unique value (i*1000 + j); padding
+        // and trailing gap carry a distinguishable sentinel.
+        let mut buf = vec![u64::MAX; cap_total];
+        let mut base = 0usize;
+        let mut expected: Vec<u64> = Vec::new();
+        for (i, (&cap, &len)) in caps.iter().zip(used).enumerate() {
+            for j in 0..len {
+                let v = (i as u64) * 1000 + j as u64;
+                buf[base + j] = v;
+                expected.push(v);
+            }
+            base += cap;
+        }
+        let total = compact_blocks::<u64>(&mut buf, caps, used);
+        assert_eq!(total, used.iter().sum::<usize>(), "total for {caps:?}/{used:?}");
+        assert_eq!(&buf[..total], &expected[..], "compacted for {caps:?}/{used:?}");
+    }
+
+    #[test]
+    fn compaction_cases() {
+        check(&[5, 5, 5], &[5, 5, 5]); // all full: plain no-op
+        check(&[5, 5, 5], &[3, 4, 2]); // generic gaps
+        check(&[5, 5, 5], &[0, 4, 2]); // first empty
+        check(&[5, 5, 5], &[3, 0, 2]); // middle empty
+        check(&[5, 5, 5], &[3, 4, 0]); // last empty
+        check(&[5, 5, 5], &[0, 0, 0]); // all empty
+        check(&[10, 1, 7], &[1, 1, 7]); // big leftward shift, full last block
+        check(&[4], &[2]); // single block
+        check(&[0, 5, 0, 3], &[0, 5, 0, 3]); // zero-capacity sub-regions
     }
 }
