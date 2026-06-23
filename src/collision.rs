@@ -20,8 +20,8 @@ use crate::cell::Cell;
 use crate::cli::Args;
 use crate::common::{
     GridParams, OrbitPartition, alloc_mmap, bin_overflow, bits_read_desc, buffer_size,
-    count_adjacent_equals, current_nanos_seed, decimation_desc, effective_cells_suffix,
-    gen_pass_dispatch, join_mode_parts, merge_into, scan_samples, test_lambda,
+    count_adjacent_equals, decimation_desc, effective_cells_suffix, gen_pass_dispatch,
+    join_mode_parts, merge_into, scan_samples, test_lambda,
 };
 use crate::prng::Prng;
 use crate::stats::{expected_collisions, format_p_value, p_value};
@@ -422,7 +422,7 @@ pub fn run_test_parallel<T: Cell>(
     lambda: f64,
     num_cpus: usize,
 ) -> (u128, f64) {
-    let seed = args.seed.unwrap_or_else(current_nanos_seed);
+    let seed = args.seed;
     eprintln!("Seed: {:#018x}", seed);
 
     let d = args.decimate.unwrap_or(0);
@@ -462,13 +462,14 @@ pub fn run_test_parallel<T: Cell>(
     let split_desc = partition.split_desc();
     eprintln!(
         "Running a parallel collision test ({} CPUs, {}) on the upper {} bits of the {} \
-         using {} points ({}-bit cells, {:.3} GiB RAM{})",
+         ({} points, {}-bit cells, {} memory locations, {:.3} GiB RAM{})",
         num_cpus,
         split_desc,
         args.u,
         output_type,
         points,
         size_of::<T>() * 8,
+        points >> tradeoff_b,
         (total_buf * size_of::<T>()) as f64 / 2.0f64.powi(30),
         mode_suffix
     );

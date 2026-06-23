@@ -8,10 +8,11 @@
 //! splitmix for the same buffer-uniformity reason as the collision tests.
 #![cfg(feature = "splitmix")]
 
+use num::BigUint;
+
 use coll_birth::birthday::{run_birthday, run_birthday_tradeoff};
 use coll_birth::common::{GridParams, buffer_size};
 use coll_birth::prng::Prng;
-use num::BigUint;
 
 fn grid(u: usize, t: usize, d: usize, cells: &BigUint) -> GridParams<'_> {
     GridParams {

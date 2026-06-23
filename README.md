@@ -100,8 +100,19 @@ implement the `try_skip` method.
 apply a hash using ideas from [Wyhash]. While the generator passes all common statistical
 tests, the hash is not sufficient to hide the bias from a large-scale collision test:
 
-```bash
-
+```text
+cargo run --release --features wyrand -- 64 1 5000000000 -b 4 -P
+Generator: wyrand
+Seed: 0x18bb7fa97c0acbb0
+Running a parallel collision test (10 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output using 80000000000 points (64-bit cells, 37.366 GiB RAM, tradeoff on 4 top bits over 16 passes)
+u: 64 t: 1 cells: 18446744073709551616 expected collisions: 173.47234734474017
+Pass 1/16: gen...[13.229s] sort...[10.799s] count...[14.386s], 4999944051 points, 20 collisions, p=0.008035262486159036; combined: 4999944051 points, 20 collisions, p=0.008035262486159036
+Pass 2/16: gen...[10.049s] sort...[5.861s] count...[16.074s], 4999999826 points, 18 collisions, p=0.0286001462015577; combined: 9999943877 points, 38 collisions, p=0.0009458204930775911
+[...]
+Pass 16/16: gen...[10.290s] sort...[5.745s] count...[15.337s], 4999930072 points, 20 collisions, p=0.008034809669851041; combined: 80000000000 points, 309 collisions, p=1.2406616831619787e-20
+309	p=1.2406616831619787e-20	combined: 309	p=1.2406616831619787e-20
+Test completed in 511.66 seconds
+309	p=1.2406616831619787e-20
 ```
 
 # Example: a linear congruential generator that is _too good_

@@ -9,7 +9,6 @@
 //! generation helpers, and the sequential test driver [`run_test`].
 
 use std::mem::size_of;
-use std::time::SystemTime;
 
 use mmap_rs::{MmapFlags, MmapMut, MmapOptions};
 use num::BigUint;
@@ -48,14 +47,6 @@ pub(crate) fn alloc_mmap<T>(n: usize) -> MmapMut {
         .par_chunks_mut(HUGE_PAGE)
         .for_each(|chunk| chunk[0] = 0);
     mapped
-}
-
-/// Returns nanoseconds since the Unix epoch, used as the default PRNG seed.
-pub(crate) fn current_nanos_seed() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64
 }
 
 /// Buffer size needed for the active sampling mode.
@@ -653,7 +644,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
 ///
 /// [`cell_index`]: crate::cell::cell_index
 pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f64) -> (u128, f64) {
-    let seed = args.seed.unwrap_or_else(current_nanos_seed);
+    let seed = args.seed;
     eprintln!("Seed: {:#018x}", seed);
 
     let mut prng = Prng::new(seed);
@@ -702,12 +693,13 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
     let mode_suffix = join_mode_parts(&mode_parts);
 
     eprintln!(
-        "Running a {} test on the upper {} bits of the {} using {} points ({}-bit cells, {:.3} GiB{}{})",
+        "Running a {} test on the upper {} bits of the {} ({} points, {}-bit cells, {} memory locations, {:.3} GiB RAM{}{})",
         test_type,
         args.u,
         output_type,
         points,
         size_of::<T>() * 8,
+        points >> tradeoff_b,
         (buf_len * size_of::<T>()) as f64 / 2.0f64.powi(30),
         headroom_suffix,
         mode_suffix

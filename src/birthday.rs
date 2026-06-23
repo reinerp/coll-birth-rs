@@ -19,8 +19,8 @@ use crate::cell::Cell;
 use crate::cli::Args;
 use crate::common::{
     GridParams, OrbitPartition, alloc_mmap, bin_overflow, bits_read_desc, buffer_size,
-    count_adjacent_equals, current_nanos_seed, decimation_desc, gen_pass_dispatch, join_mode_parts,
-    scan_samples, test_lambda,
+    count_adjacent_equals, decimation_desc, gen_pass_dispatch, join_mode_parts, scan_samples,
+    test_lambda,
 };
 use crate::prng::Prng;
 use crate::stats::{format_p_value, p_value};
@@ -362,7 +362,7 @@ pub fn run_birthday_parallel<T: Cell>(
     lambda: f64,
     num_cpus: usize,
 ) -> (u128, f64) {
-    let seed = args.seed.unwrap_or_else(current_nanos_seed);
+    let seed = args.seed;
     eprintln!("Seed: {:#018x}", seed);
 
     let d = args.decimate.unwrap_or(0);
@@ -420,13 +420,14 @@ pub fn run_birthday_parallel<T: Cell>(
 
     eprintln!(
         "Running a parallel birthday-spacings test ({} CPUs, {}) on the upper {} bits of the {} \
-         using {} points ({}-bit cells, {:.3} GiB RAM{})",
+         ({} points, {}-bit cells, {} memory locations, {:.3} GiB RAM{})",
         num_cpus,
         split_desc,
         args.u,
         output_type,
         points,
         size_of::<T>() * 8,
+        points >> b,
         (live_elems * size_of::<T>()) as f64 / 2.0f64.powi(30),
         mode_suffix
     );

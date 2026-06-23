@@ -14,12 +14,13 @@
 //! MSWS-CTR, LCG, MWC, Romu) exercises both the jump and pre-scan snapshot paths.
 #![cfg(not(feature = "incr"))]
 
+use num::BigUint;
+use num::traits::ToPrimitive;
+
 use coll_birth::birthday::run_birthday_parallel;
 use coll_birth::cli::Args;
 use coll_birth::collision::run_test_parallel;
 use coll_birth::common::{compute_lambda_and_points, run_test, test_lambda};
-use num::BigUint;
-use num::traits::ToPrimitive;
 
 fn make_args(u: usize, t: usize, m: usize, tradeoff: Option<usize>, seed: u64) -> Args {
     Args {
@@ -32,7 +33,7 @@ fn make_args(u: usize, t: usize, m: usize, tradeoff: Option<usize>, seed: u64) -
         checkpoints: false,
         birthday_spacings: false,
         reps: 1,
-        seed: Some(seed),
+        seed,
         pretty_p: false,
         parallel: Some(0),
         pass: None,

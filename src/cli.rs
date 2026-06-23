@@ -49,9 +49,9 @@ pub struct Args {
     #[arg(short, long, default_value_t = 1)]
     pub reps: usize,
 
-    /// PRNG seed (default: the current time in nanoseconds).​
-    #[arg(short = 'S', long)]
-    pub seed: Option<u64>,
+    /// PRNG seed. Accepts decimal, or a 0x/0o/0b prefix for hexadecimal, octal, or binary; underscores may separate digits.​
+    #[arg(short = 'S', long, default_value_t = 0, value_parser = parse_u64)]
+    pub seed: u64,
 
     /// Print p-values close to 1 in the form `1 − ε`.​
     #[arg(short = 'p', long)]
@@ -171,6 +171,24 @@ impl Args {
             }
         })
     }
+}
+
+/// Parses an unsigned 64-bit integer in decimal, or in hexadecimal, octal, or
+/// binary when prefixed with `0x`, `0o`, or `0b` (case-insensitive).
+/// Underscores are allowed as digit separators (e.g. `0xDEAD_BEEF`).
+fn parse_u64(value: &str) -> Result<u64, String> {
+    let trimmed = value.trim();
+    let (radix, digits) = match trimmed.get(..2) {
+        Some("0x") | Some("0X") => (16, &trimmed[2..]),
+        Some("0o") | Some("0O") => (8, &trimmed[2..]),
+        Some("0b") | Some("0B") => (2, &trimmed[2..]),
+        _ => (10, trimmed),
+    };
+    let digits: String = digits.chars().filter(|&c| c != '_').collect();
+    if digits.is_empty() {
+        return Err(format!("invalid integer: {value:?}"));
+    }
+    u64::from_str_radix(&digits, radix).map_err(|e| format!("invalid integer {value:?}: {e}"))
 }
 
 /// Initializes the `env_logger` logger with a custom format including

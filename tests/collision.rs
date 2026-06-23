@@ -12,11 +12,12 @@
 //! gated to splitmix.
 #![cfg(feature = "splitmix")]
 
+use num::BigUint;
+use num::traits::ToPrimitive;
+
 use coll_birth::collision::{run_collision, run_collision_decimate, run_collision_tradeoff};
 use coll_birth::common::{GridParams, buffer_size};
 use coll_birth::prng::Prng;
-use num::BigUint;
-use num::traits::ToPrimitive;
 
 fn grid(u: usize, t: usize, d: usize, cells: &BigUint) -> GridParams<'_> {
     GridParams {
