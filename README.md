@@ -147,8 +147,8 @@ cargo run -r -F splitmix -- 64 1 8000000000 -d 4 -p -P
 Generator: SplitMix
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, decimating 4 bits per dimension (~2^4 candidate samples per kept sample))
-u: 64 t: 1 cells: 1152921504606846976 expected collisions: 27.755575547961804 (effective cells after decimation: 2^60)
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, decimating 4 bits per dimension (~2⁴ candidate samples per kept sample))
+u: 64 t: 1 cells: 1152921504606846976 expected collisions: 27.755575547961804 (effective cells after decimation: 2⁶⁰)
 Pass 1/1: gen...[18.642s] sort...[26.335s] count...[1.048s], 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13; combined: 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13
 0	p=1 − 8.829770712901635e-13	combined: 0	p=1 − 8.829770712901635e-13
 Test completed in 47.73 seconds

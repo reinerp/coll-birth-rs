@@ -60,7 +60,7 @@ fn main() {
         .pow((args.u - args.decimate.unwrap_or(0)) as _)
         .pow(args.t as u32);
     if cells > BigUint::from(2u32).pow(128) {
-        Args::die("you cannot have more than 2^128 cells");
+        Args::die("you cannot have more than 2¹²⁸ cells");
     }
 
     let (lambda, points) = compute_lambda_and_points(&args, &cells);
@@ -98,7 +98,7 @@ fn main() {
             * test_lambda(points, cells.to_f64().unwrap(), args.birthday_spacings)
             / num_passes as f64;
         eprintln!(
-            "Single pass {k} of {num_passes}: recombine the 2^b runs via p_value(Σ counts, Σ lambdas)"
+            "Single pass {k} of {num_passes}: recombine the 2ᵇ runs via p_value(Σ counts, Σ lambdas)"
         );
         println!("{tot}\tlambda={lambda_k}");
     } else {

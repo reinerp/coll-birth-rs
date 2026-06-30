@@ -571,7 +571,7 @@ impl Prng {
         const A: u32 = 0xec65035;
         // Compose the affine map (mul, add) = (A, 1) with itself n times by
         // binary exponentiation; (am, ac) accumulates the result, (ai, ci) the
-        // current 2^k-th power. compose((m1,c1),(m2,c2)) = (m1*m2, m2*c1 + c2).
+        // current 2ᵏ-th power. compose((m1,c1),(m2,c2)) = (m1*m2, m2*c1 + c2).
         let (mut am, mut ac) = (1u32, 0u32);
         let (mut ai, mut ci) = (A, 1u32);
         let mut k = n;
@@ -612,7 +612,7 @@ impl Prng {
         const A: u32 = 0x915f77f5;
         // Compose the affine map (mul, add) = (A, 1) with itself n times by
         // binary exponentiation; (am, ac) accumulates the result, (ai, ci) the
-        // current 2^k-th power. compose((m1,c1),(m2,c2)) = (m1*m2, m2*c1 + c2).
+        // current 2ᵏ-th power. compose((m1,c1),(m2,c2)) = (m1*m2, m2*c1 + c2).
         let (mut am, mut ac) = (1u32, 0u32);
         let (mut ai, mut ci) = (A, 1u32);
         let mut k = n;
@@ -664,7 +664,7 @@ macro_rules! lcg64 {
             pub fn try_skip(&mut self, n: u64) -> Result<(), ()> {
                 // Compose the affine map (mul, add) = (LCG64_A, 1) with itself n
                 // times by binary exponentiation; (am, ac) accumulates the result,
-                // (ai, ci) the current 2^k-th power.
+                // (ai, ci) the current 2ᵏ-th power.
                 // compose((m1,c1),(m2,c2)) = (m1*m2, m2*c1 + c2).
                 let (mut am, mut ac) = (1u64, 0u64);
                 let (mut ai, mut ci) = (LCG64_A, 1u64);

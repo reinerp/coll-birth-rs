@@ -44,7 +44,7 @@ fn cells_for(args: &Args) -> BigUint {
     BigUint::from(2u32).pow(args.u as u32).pow(args.t as u32)
 }
 
-// Single-pass (--pass K) runs one of the 2^b summable units; the per-unit
+// Single-pass (--pass K) runs one of the 2ᵇ summable units; the per-unit
 // counts must sum to a full -b run, in both the sequential and parallel paths.
 // This pins the recombination guarantee of the single-pass design.
 #[test]
@@ -74,7 +74,7 @@ fn single_pass_collision_sum_matches_full() {
         "parallel single-pass counts must sum to full"
     );
 
-    // The per-pass nominal lambda shares (lambda_total / 2^b) sum back to the
+    // The per-pass nominal lambda shares (lambda_total / 2ᵇ) sum back to the
     // full lambda exactly (power-of-two divisor → exact in f64).
     let num_passes = 1u64 << b;
     let lambda_k = test_lambda(points, cells.to_f64().unwrap(), false) / num_passes as f64;
@@ -222,7 +222,7 @@ fn faithful_birthday_plain_matches_sequential() {
     let seed = 0x0B17_4DA9_0000_0001;
     let mut args = make_args(20, 2, 40_000, None, seed);
     args.birthday_spacings = true;
-    let cells = cells_for(&args); // 2^40
+    let cells = cells_for(&args); // 2⁴⁰
     let (lambda, points) = compute_lambda_and_points(&args, &cells);
     let seq = run_test::<u64>(&args, points, &cells, lambda);
     let par1 = run_birthday_parallel::<u64>(&args, points, &cells, lambda, 1);
@@ -237,7 +237,7 @@ fn faithful_birthday_tradeoff_matches_sequential() {
     let seed = 0x0B17_4DA9_0000_0002;
     let mut args = make_args(20, 2, 10_000, Some(2), seed);
     args.birthday_spacings = true;
-    let cells = cells_for(&args); // 2^40
+    let cells = cells_for(&args); // 2⁴⁰
     let (lambda, points) = compute_lambda_and_points(&args, &cells); // points = 10000 · 4
     let seq = run_test::<u64>(&args, points, &cells, lambda);
     let par1 = run_birthday_parallel::<u64>(&args, points, &cells, lambda, 1);
@@ -261,7 +261,7 @@ fn faithful_birthday_boundary_u32_matches_sequential() {
     let mut args = make_args(16, 2, 12_500, Some(2), seed);
     args.birthday_spacings = true;
     let cells = cells_for(&args); // exactly 2^32
-    let points = 50_000usize; // m · 2^b
+    let points = 50_000usize; // m · 2ᵇ
     let lambda = (points as f64).powi(3) / (4.0 * cells.to_f64().unwrap());
     let seq = run_test::<u32>(&args, points, &cells, lambda);
     let par3 = run_birthday_parallel::<u32>(&args, points, &cells, lambda, 3);

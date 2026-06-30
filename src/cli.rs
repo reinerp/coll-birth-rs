@@ -128,8 +128,8 @@ impl Args {
                     self.t * (self.u - d)
                 ));
             }
-            // The number of passes is 2^b and must fit in a u64; b >= 64 also
-            // describes a wholly infeasible run (≥ 2^64 passes). Capping here keeps
+            // The number of passes is 2ᵇ and must fit in a u64; b >= 64 also
+            // describes a wholly infeasible run (≥ 2⁶⁴ passes). Capping here keeps
             // every `1u64 << b` site (validation, the --pass share, the runners)
             // from shift-overflowing.
             if b >= 64 {
@@ -146,7 +146,7 @@ impl Args {
                     let num_passes = 1u64 << b;
                     if k >= num_passes {
                         Self::die(&format!(
-                            "--pass K ({}) must be less than 2^b ({})",
+                            "--pass K ({}) must be less than 2ᵇ ({})",
                             k, num_passes
                         ));
                     }

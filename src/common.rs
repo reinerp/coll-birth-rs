@@ -19,7 +19,7 @@ use crate::cli::Args;
 use crate::collision::{run_collision, run_collision_decimate, run_collision_tradeoff};
 use crate::prng::Prng;
 use crate::stats::{expected_collisions, format_p_value, p_value};
-use crate::util::{Stopwatch, parallelism};
+use crate::util::{Stopwatch, parallelism, superscript};
 
 /// Allocates an mmap-backed slice and eagerly faults it as transparent huge pages.
 ///
@@ -122,9 +122,9 @@ pub(crate) fn bits_read_desc(s: usize) -> String {
 /// The shared decimation descriptor for the header's mode list.
 pub(crate) fn decimation_desc(d: usize, t: usize) -> String {
     format!(
-        "decimating {} bits per dimension (~2^{} candidate samples per kept sample)",
+        "decimating {} bits per dimension (~2{} candidate samples per kept sample)",
         d,
-        d * t
+        superscript(d * t)
     )
 }
 
@@ -138,10 +138,13 @@ pub(crate) fn join_mode_parts(parts: &[String]) -> String {
     }
 }
 
-/// The " (effective cells after decimation: 2^N)" header note (empty when d == 0).
+/// The " (effective cells after decimation: 2*ᴺ*)" header note (empty when `d == 0`).
 pub(crate) fn effective_cells_suffix(d: usize, u: usize, t: usize) -> String {
     if d > 0 {
-        format!(" (effective cells after decimation: 2^{})", (u - d) * t)
+        format!(
+            " (effective cells after decimation: 2{})",
+            superscript((u - d) * t)
+        )
     } else {
         String::new()
     }
@@ -652,7 +655,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
     // Decimation and the other modes use m as-is. Use a checked shift so an
     // out-of-range product is reported.
     let pass_factor = match args.tradeoff {
-        Some(b) => 1usize.checked_shl(b as u32).expect("2^b overflows usize"),
+        Some(b) => 1usize.checked_shl(b as u32).expect("2ᵇ overflows usize"),
         None => 1,
     };
 
@@ -665,7 +668,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
         // point count is m · 2ᵇ (only ~points / 2ᵇ are ever resident), mirroring
         // the collision tradeoff; without one, pass_factor is 1 and points = m.
         let m = args.m.unwrap_or(max_points / pass_factor.max(1));
-        points = m.checked_mul(pass_factor).expect("m · 2^b overflows usize");
+        points = m.checked_mul(pass_factor).expect("m · 2ᵇ overflows usize");
         if points > max_points {
             Args::die(
                 "the given combination of memory, repetitions and cells is out of range \

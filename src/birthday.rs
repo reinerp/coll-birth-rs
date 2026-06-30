@@ -196,11 +196,11 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
     let point_key_shift = t * elem_width - b; // top b bits select the value interval
     let spacing_mask = T::low_bits_mask(b); // low b bits select the spacing class
     let scan_len = scan_samples(points, t, d);
-    // cells itself may be unrepresentable (2^N in N-bit storage); cells − 1 always
+    // cells itself may be unrepresentable (2ᴺ in N-bit storage); cells − 1 always
     // is, and the wrap-around spacing is evaluated through it.
     let cells_m1 = T::from_u128((params.cells - BigUint::from(1u8)).to_u128().unwrap());
 
-    // One value interval keeps ~points / 2^b points (with balls-into-bins headroom
+    // One value interval keeps ~points / 2ᵇ points (with balls-into-bins headroom
     // over the t·d + b selectivity bits).
     let mut scratch: Vec<T> = vec![T::ZERO; buffer_size(scan_len, t * d + b)];
 
@@ -211,10 +211,10 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
     let mut sw = Stopwatch::new();
     eprintln!("Birthday tradeoff over {num_passes} spacing-classes");
     // Per-class progress heartbeat (collision-style): each spacing-class sweeps all
-    // 2^b value-intervals, so without this the run is silent for the whole sweep.
+    // 2ᵇ value-intervals, so without this the run is silent for the whole sweep.
     let mut class_sw = Stopwatch::new();
     let cells_f64 = params.cells.to_f64().unwrap();
-    // Nominal per-class Poisson mean (lambda_total / 2^b) for the progress p-values.
+    // Nominal per-class Poisson mean (lambda_total / 2ᵇ) for the progress p-values.
     let lambda_class = (points as f64).powi(3) / (4.0 * cells_f64) / num_passes as f64;
 
     for j in pass_lo..pass_hi {
@@ -403,7 +403,7 @@ pub fn run_birthday_parallel<T: Cell>(
     let full = args.u == 64 && args.s == 0;
     let partition_bits = t * d + b;
     let spacing_mask = T::low_bits_mask(b);
-    // cells itself may be unrepresentable (2^N in N-bit storage); cells − 1 always
+    // cells itself may be unrepresentable (2ᴺ in N-bit storage); cells − 1 always
     // is, and the wrap-around spacing is evaluated through it.
     let cells_m1 = T::from_u128((cells - BigUint::from(1u8)).to_u128().unwrap());
 
@@ -435,8 +435,8 @@ pub fn run_birthday_parallel<T: Cell>(
 
     let mut mode_parts: Vec<String> = Vec::new();
     if b > 0 {
-        // The birthday tradeoff is two-level: 2^b value intervals (inner sweep) by
-        // 2^b spacing classes (outer sweep).
+        // The birthday tradeoff is two-level: 2ᵇ value intervals (inner sweep) by
+        // 2ᵇ spacing classes (outer sweep).
         mode_parts.push(format!(
             "tradeoff on {} top bits over {} value intervals x {} spacing classes",
             b, num_passes, num_passes
@@ -499,9 +499,9 @@ pub fn run_birthday_parallel<T: Cell>(
             rep, args.reps, num_passes, num_passes
         );
         // Per-class progress heartbeat (collision-style): each spacing-class sweeps
-        // all 2^b value-intervals, so without this the rep is silent for hours.
+        // all 2ᵇ value-intervals, so without this the rep is silent for hours.
         let mut class_sw = Stopwatch::new();
-        // Nominal per-class Poisson mean (lambda_total / 2^b) for the progress
+        // Nominal per-class Poisson mean (lambda_total / 2ᵇ) for the progress
         // p-values; the final rep line below conditions on the actual kept count.
         let lambda_class = test_lambda(points, cells_f64, true) / num_passes as f64;
 
@@ -694,14 +694,14 @@ pub fn run_birthday_parallel<T: Cell>(
 }
 
 // Direct tests of the wrap-around arithmetic in compute_spacings at the
-// cells == 2^N storage boundary; no PRNG involved, so no feature gate.
+// cells == 2ᴺ storage boundary; no PRNG involved, so no feature gate.
 #[cfg(test)]
 mod spacing_tests {
     use super::*;
     use num::BigUint;
 
-    // Non-degenerate at the boundary: sorted points {3, 10, 2^64 − 1} on a circle
-    // of 2^64 cells have spacings {7, 2^64 − 11} and wrap 2^64 − (2^64 − 1) + 3 = 4,
+    // Non-degenerate at the boundary: sorted points {3, 10, 2⁶⁴ − 1} on a circle
+    // of 2⁶⁴ cells have spacings {7, 2⁶⁴ − 11} and wrap 2⁶⁴ − (2⁶⁴ − 1) + 3 = 4,
     // none of which overflow u64 despite cells itself being unrepresentable.
     #[test]
     fn wrap_at_width_boundary_is_exact() {
@@ -714,7 +714,7 @@ mod spacing_tests {
     }
 
     // Degenerate case at the boundary: all points coincide, so the wrap-around
-    // would equal cells == 2^64. It is replaced by a nonzero stand-in; the n − 1
+    // would equal cells == 2⁶⁴. It is replaced by a nonzero stand-in; the n − 1
     // zero spacings then yield exactly n − 2 collisions, the true count.
     #[test]
     fn degenerate_equal_points_at_width_boundary() {

@@ -187,7 +187,7 @@ mod tests {
 
     // decimate_once consumes exactly t draws per call (accepted or rejected),
     // returns Some only when every element's low d bits are zero, and the dense
-    // index is in [0, (2^(u-d))^t). Both arms must be exercise, which needs a
+    // index is in [0, (2ᵘ⁻ᵈ)ᵗ). Both arms must be exercise, which needs a
     // non-degenerate generator (the incr counter maps everything to ~cell 0, so it
     // never rejects), hence the gate.
     #[cfg(not(feature = "incr"))]
