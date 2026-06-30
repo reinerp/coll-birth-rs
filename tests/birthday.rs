@@ -79,7 +79,7 @@ fn birthday_width_boundary_u32_matches_u64() {
 
 // cells == 2^128 in u128 storage: the largest possible grid. The tradeoff
 // runner used to panic materializing cells itself; both runners must now
-// complete and agree (the counts are ~0 at this density — the value of the
+// complete and agree (the counts are ~0 at this density; the value of the
 // test is exercising the wrap arithmetic at the type limit).
 #[test]
 fn birthday_2_pow_128_cells_tradeoff_matches_plain() {

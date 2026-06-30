@@ -5,7 +5,7 @@ This crate implements two empirical tests for pseudorandom number generators
 are implemented by batteries of tests such as TestU01 (and, in fact, are very
 easy to implement in a naive way), we implement new parallel algorithmic
 techniques that open the way to very large scale execution of these tests, even
-with a limited about of memory.
+with a limited amount of memory.
 
 The tests draw the _u_ ≤ 64 − _s_ upper bits from the 64-bit PRNG output
 shifted to the left by _s_, _t_ times, forming _t_-tuples of cell indices. If
@@ -26,11 +26,11 @@ Both tests use the same top-bit partition: for collisions, equal points share
 their top bits and so land in the same pass; for birthday spacings, a contiguous
 interval yields the correct distances within a pass (with a fix at each interval
 border), and the spacing collisions are then counted by a second level of
-tradeoff, this time based on the the _lower_ _b_ bits of the spacings (balanced,
-since spacings cluster near zero); thus, the birthday-specings test runs
+tradeoff, this time based on the _lower_ _b_ bits of the spacings (balanced,
+since spacings cluster near zero); thus, the birthday-spacings test runs
 (2*ᵇ*)² passes.
 
-For simplicity of interation with the tool, the main parameter to the tests is
+For simplicity of interaction with the tool, the main parameter to the tests is
 _m_, the (approximate) number of memory locations to use. Then,
 
 - the number of points is approximately _m_ · 2*ᵇ*;
@@ -52,14 +52,52 @@ birthday spacings. _p_-values are computed against a Poisson reference via
 [`cdflib`], with the mean conditioned on the number of points actually kept
 (relevant under decimation, where the kept count is random).
 
-If parallel cores are available, the generation of the output will happen in
-parallel: the part of the orbit that need to be generated is split into
-segments, and each core generate a segment. If the PRNG supports skipping, the
-starting states for each segment are computed using skipping. If no skipping is
-available, parallel generation is used only in case of tradeoffs, as even with 2
-processors and one tradeoff bit enumerating the relevant part of the orbit to
-find the initial state of each segment breaks even, and with more processor it
-becomes competitive.
+If multiple cores are available, an option can make the generation of the output
+happen in parallel: the part of the orbit that needs to be generated is split
+into segments, and each core generates a segment. If the PRNG supports skipping,
+the starting states for each segment are computed using skipping. If no skipping
+is available, parallel generation is used only in case of tradeoffs, as even
+with 2 processors and one tradeoff bit enumerating the relevant part of the
+orbit to find the initial state of each segment breaks even, and with more
+processors it becomes competitive.
+
+# Decimation
+
+To the best of my knkowledge, Melissa O'Neill's has been the first to [propose
+the use of decimation] to make a collision test most powerful (but note that her
+new “birthday test” in the quoted reference is just the standard collision test
+you can find in Knuth's TAoCP). Decimation increases the number of expected collisions
+because the approximate mean of the distribution in the sparse case is given by the square
+of the number of points divided by the number of cells. Since numbers with the _d_
+lower bits equal to zero can cause collisions only among themselves, the mean is multiplied
+by 2*ᵈ* with respect to an undecimated test.
+
+The idea can be extended to any subset of bits being equal to any set of bit
+pattern, or more general mappings.
+
+# Repetitions
+
+The tests can be repeated multiple times: the statistics can be added together,
+from which a single _p_-value is computed.
+
+# Comparison of techniques
+
+Given a budget of _m_ memory locations, a space-time tradeoff on _b_ bits,
+decimation with 2*b* bits, or performing 2*²ᵇ* repetitions will use the same
+number of calls to the generator, and will end up comparing against the same
+mean.
+
+If there are no collisions, the _p_-values will be the same. However, if there
+are too many collisions, different techniques will yield different statistics
+and different _p_-values.
+
+Empirically, it seems that the most powerful technique is space-time tradeoffs
+(i.e., a standard collision test), followed by decimation, and finally
+repetitions. However, this might depend on the generator, because space-time
+tradeoffs use the whole orbit under examination, but decimation looks farther
+into the orbit. Moreover, space-time tradeoffs are a technique to implement the
+collision and the birthday-spacings tests, whereas decimation is a variant on
+the test.
 
 # Usage
 
@@ -81,8 +119,8 @@ Test completed in 471.27 seconds
 0	p=1 − 6.0761254074375494e-49
 ```
 
-will test SplitMi using about 29.9 GiB of RAM, using four tradeoff bits and
-parallel generations. Note at each tradeoff pass is interpretable as a
+will test SplitMix using about 22.4 GiB of RAM, using four tradeoff bits and
+parallel generations. Note that each tradeoff pass is interpretable as a
 decimation, and each prefix of tradeoff passes as a multi-target decimation, so
 corresponding _p_-values are output, helping to see where the computation is
 going. Since we were expecting _p_-values close to one, we used the pretty-printing option
@@ -97,7 +135,7 @@ implement the `try_skip` method.
 # Example: WyRand
 
 [WyRand] is a simple 64-bit generator with 64 bits of state. It increments a counter and
-apply a hash using ideas from [Wyhash]. While the generator passes all common statistical
+applies a hash using ideas from [Wyhash]. While the generator passes all common statistical
 tests, the hash is not sufficient to hide the bias from a large-scale collision test:
 
 ```text
@@ -115,19 +153,19 @@ Test completed in 511.66 seconds
 309	p=1.2406616831619787e-20
 ```
 
-# Example: a linear congruential generator that is _too good_
+# Example: an affine congruential generator that is _too good_
 
-Multipliers for linear congruential generators (LCG—incidentally, the name is
-wrong since ever, since they are _affine_, not _linear_) are judged on the basis
-of the _spectral test_, which computes the distance between hyperplanes spanned
-by vectors of consecutive outputs. It is a staple of the literature on the topic
-since the 60's that you should strive for the smallest possible distance, to
-which one associates a large _figure of merit_. A large body of research has
-studied spectral scores, and studied how to obtain multipliers with large
-figures of merit. Less known is that figures of merit have nothing to do with
-the randomness of the output of the generator—they just describe its
-_uniformity_. If a multiplier is not uniform enough, it will fail collision test
-because too many outputs end up in the same cell.
+Multipliers for affine congruential generators—ACGs, commonly known as linear
+congruential generators (LCGs), even if their map is _affine_, not _linear_—are
+judged on the basis of the _spectral test_, which computes the distance between
+hyperplanes spanned by vectors of consecutive outputs. It is a staple of the
+literature on the topic since the 60's that you should strive for the smallest
+possible distance, to which one associates a large _figure of merit_. A large
+body of research has studied spectral scores, and studied how to obtain
+multipliers with large figures of merit. Less known is that figures of merit
+have nothing to do with the randomness of the output of the generator—they just
+describe its _uniformity_. If a multiplier is not uniform enough, it will fail
+collision test because too many outputs end up in the same cell.
 
 However, if you can run large-scale collision test, a multiplier that is _too
 good_ will fail, too, as the hyperplanes are still there:
@@ -156,26 +194,48 @@ tradeoffs the test would require half a terabyte of RAM.
 
 # Example: multiply-with-carry generators
 
-Marsaglia's multiply-with-carry generators are very.
-
-While they pass most statistical tests, it is known that their output is tightly
-couple with that of a linear congruential generator with large prime modulus (an
-actual linear congruential generator, sometimes called a _multiplicative_
-generator because of the confusion between linear and affine generators
-discussed above). Spectral analysis shows that such generators have inherently
-bad figures of merit *f*₃, but obtaining concrete failures in statistical test is
-not easy due to the large state space. However, we can find bias using birthday
-spacing in a 64-bit MWC with 128 bits of state:
+Marsaglia's multiply-with-carry generators are very fast generator with
+arbitrarily large periods. While they pass most typical statistical tests (in
+fact, with sufficient state, all tests), it is known that their output is
+tightly coupled with that of a linear congruential generator with large prime
+modulus (an actual _linear_ congruential generator, not an _affine_ one,
+sometimes called a _multiplicative_ generator because of the confusion between
+linear and affine generators discussed above). Spectral analysis shows that such
+generators have inherently bad figures of merit *f*₃, but obtaining concrete
+failures in statistical test is not easy due to the large state space. However,
+we can find bias using birthday spacings in a 64-bit MWC with 128 bits of state:
 
 ```bash
-
+cargo run -r -F mwc_128_64_0xffebb71d94fcdaf9 36 3 2000000000 -B -P -b 6
+Generator: MWC128 (0xffebb71d94fcdaf9)
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel birthday-spacings test (20 CPUs, jump-ahead) on the upper 36 bits of the full 64-bit output (128000000000 points, 128-bit cells, 2000000000 memory locations, 59.853 GiB RAM, tradeoff on 6 top bits over 64 value intervals x 64 spacing classes)
+u: 36 t: 3 cells: 324518553658426726783156020576256 expected collisions: 1.6155871338926322
+Rep 1/1: 64 value intervals x 64 spacing classes
+  Class 1/64, interval 1/64: gen...[90.838s] sort...[10.731s] filter...[1.067s], 2000034155 points
+  Class 1/64, interval 2/64: gen...[90.889s] sort...[10.882s] filter...[1.076s], 1999968926 points
+[...]
+ Class 64/64, interval 64/64: gen...[57.182s] sort...[13.009s] filter...[1.105s], 2000023578 points
+ Class 64/64 done: [6064.541s], 2000055256 spacings, 2 collisions, p=0.00031330676200791153; combined: 65 collisions, p=8.595346190145383e-79
+[392078.211s] 65	p=8.595346190145383e-79	combined: 65	p=8.595346190145383e-79
+Test completed in 392079.89 seconds
+65	p=8.595346190145383e-79
 ```
 
 The multiplier has excellent scores, but our tests can detect its bias on a
 standard workstation. In this case, running the test in a naïve way would
 require terabytes of RAM.
 
-[`cdflib`]: https://crates.io/crates/cdflib
-[`prng`]: https://docs.rs/coll/latest/coll/prng/index.html
+# Acknowledgments
 
-[I conducted with Guy Steele]:
+I would like to thank the GitHub user `alvoskov` for a [very interesting
+discussion] that stimulated me to publish this create.
+
+[`cdflib`]: https://crates.io/crates/cdflib
+[`prng`]: https://docs.rs/coll-birth/latest/coll_birth/prng/index.html
+[I conducted with Guy Steele]: https://doi.org/10.1002/spe.3030
+[WyRand]: https://github.com/wangyi-fudan/wyhash
+[WyHash]: https://github.com/wangyi-fudan/wyhash
+[very interesting discussion]: https://github.com/alvoskov/SmokeRand/issues/24
+[propose the use of decimation]: https://www.pcg-random.org/posts/birthday-test.html

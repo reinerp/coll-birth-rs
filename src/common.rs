@@ -4,9 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-//! Infrastructure shared by the collision and birthday-spacings tests: the grid
-//! parameters, buffer sizing, the faithful orbit partition, the per-thread
-//! generation helpers, and the sequential test driver [`run_test`].
+//! Infrastructure shared by the collision and birthday-spacings tests.
 
 use std::mem::size_of;
 
@@ -51,20 +49,19 @@ pub(crate) fn alloc_mmap<T>(n: usize) -> MmapMut {
 
 /// Buffer size needed for the active sampling mode.
 ///
-/// A pass keeps the samples whose selection key — the *t* · *d* decimation
-/// residue bits plus the *b* top tradeoff bits, `partition_bits` in all —
+/// A pass keeps the samples whose selection key (the *t* · *d* decimation
+/// residue bits plus the *b* top tradeoff bits, `partition_bits` in all)
 /// matches a fixed value, that is, one "bin" of a balls-into-bins experiment
-/// with `points` balls and *n* = 2^`partition_bits` bins. A single bin's load
+/// with `points` balls and *n* = 2^`partition_bits` bins. A single bin load
 /// is a sum of independent indicators, so writing *m* for its mean
-/// `points`/*n*, Bernstein's inequality bounds P[load ≥ *m* + λ] by
+/// `points`/*n*, Bernstein's inequality bounds Pr[load ≥ *m* + λ] by
 /// exp(−λ²/(2(*m* + λ/3))); a union bound over the *n* bins then makes the
-/// probability that *any* bin exceeds *m* + λ at most
-/// *n* · exp(−λ²/(2(*m* + λ/3))), which is below 10⁻¹⁰⁰⁰ for
-/// λ = *L*/3 + √(*L*²/9 + 2·*m*·*L*) with *L* = ln *n* + 1000 · ln 10 (the
-/// exact inversion of the exponent). The headroom's shape is tight: by
-/// Theorem 1 of [Raab & Steger] the maximum load actually reaches
-/// *m* + √(2·*m*·ln *n*) · (1 − o(1)) in the heavily-loaded regime, so little
-/// can be shaved.
+/// probability that *any* bin exceeds *m* + λ at most *n* · exp(−λ²/(2(*m* +
+/// λ/3))), which is below 10⁻¹⁰⁰⁰ for λ = *L*/3 + √(*L*²/9 + 2·*m*·*L*) with
+/// *L* = ln *n* + 1000 · ln 10 (the exact inversion of the exponent). The
+/// headroom's shape is tight: by Theorem 1 of [Raab & Steger] the maximum load
+/// actually reaches *m* + √(2·*m*·ln *n*) · (1 − o(1)) in the heavily-loaded
+/// regime, so little can be shaved.
 ///
 /// [Raab & Steger]: https://doi.org/10.1007/3-540-49543-6_13
 pub fn buffer_size(points: usize, partition_bits: usize) -> usize {
@@ -99,11 +96,13 @@ pub(crate) fn bin_overflow(what: &str) -> ! {
     std::process::exit(1);
 }
 
-/// Samples scanned per pass: points · 2^(t·d). Uses a genuine overflow check —
-/// checked_shl alone only guards the shift amount, not the resulting value, so a
-/// too-large t·d would silently wrap. A configuration whose sample budget does
-/// not fit in a usize (points · 2^(t·d) ≥ 2^64; points already carries the 2^b
-/// tradeoff factor) surfaces here as a clean overflow error.
+/// Samples scanned per pass: `points` · 2*ᵗᵈ*. Uses an overflow check:
+/// [`checked_shl`] alone only guards the shift amount, not the resulting value, so
+/// a too-large t·d would silently wrap. A configuration whose sample budget
+/// does not fit in a usize (points · 2*ᵗᵈ* ≥ 2⁶⁴; points already carries the
+/// 2*ᵇ* tradeoff factor) surfaces here as a clean overflow error.
+///
+/// [`checked_shl`]: u32::checked_shl
 pub(crate) fn scan_samples(points: usize, t: usize, d: usize) -> usize {
     1usize
         .checked_shl((t * d) as u32)
@@ -251,9 +250,7 @@ pub(crate) fn merge_into<T: Cell>(buf: &mut [T], prefix_len: usize, src: &[T]) {
 /// The faithful contiguous-orbit partition shared by both parallel runners. A scan
 /// of `scan_total` samples is split into `num_cpus` contiguous sample-ranges; each
 /// range's start is reached by jump-ahead (`try_skip`) for skip-capable generators
-/// or by a chained sequential pre-scan ([`prescan_checkpoints`]) otherwise. This is
-/// the single home of the faithfulness-critical orbit arithmetic; the result is
-/// bit-identical to a sequential run for any `num_cpus`.
+/// or by a chained sequential pre-scan ([`prescan_checkpoints`]) otherwise.
 pub(crate) struct OrbitPartition {
     pub(crate) num_cpus: usize,
     pub(crate) scan_total: usize,
@@ -353,13 +350,15 @@ impl OrbitPartition {
 }
 
 /// Sequentially walk `total_cells` samples of the orbit starting from `start`
-/// (each sample consumes exactly *t* PRNG draws, in every mode — decimation still
+/// (each sample consumes exactly *t* PRNG draws, in every mode; decimation still
 /// draws *t* per sample, it just conditionally rejects the result), capturing a
 /// copy of the generator when the walk reaches each cell index in `boundaries`
-/// (which must be sorted ascending and lie in `0..total_cells`). Returns one
-/// snapshot per boundary plus the end state (after all `total_cells` cells), so
-/// the caller can chain the next repetition's walk. Snapshot `i` is bit-identical
-/// to `try_skip(boundaries[i] * t)` for jump-capable generators.
+/// (which must be sorted ascending and lie in `0..total_cells`).
+///
+/// Returns one snapshot per boundary plus the end state (after all
+/// `total_cells` cells), so the caller can chain the next repetition's walk.
+/// Snapshot `i` is bit-identical to `try_skip(boundaries[i] * t)` for
+/// jump-capable generators.
 ///
 /// Used to give non-jumpable generators a faithful parallel split: the walk is
 /// inherently sequential (it follows the orbit) and cannot be parallelized
@@ -515,7 +514,7 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
     let num_cpus = caps.len();
     debug_assert_eq!(snapshots.len(), num_cpus);
 
-    // Phase 1 — each thread generates into its own disjoint sub-region.
+    // Phase 1: each thread generates into its own disjoint sub-region.
     let used: Box<[usize]> = std::thread::scope(|scope| {
         let mut rest = &mut buf[..];
         let mut handles = Vec::with_capacity(num_cpus);
@@ -534,7 +533,7 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
-    // Phase 2 — close the gaps so the kept points are contiguous.
+    // Phase 2: close the gaps so the kept points are contiguous.
     compact_blocks(buf, caps, &used)
 }
 
@@ -644,12 +643,12 @@ pub fn test_lambda(points: usize, cells: f64, birthday_spacings: bool) -> f64 {
 /// Computes the Poisson mean and the point count to use, applying the test-specific defaults.
 pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
     // cells is already the effective cell count: main() computes it as
-    // 2^((u − d) · t), incorporating any whole-tuple decimation.
+    // (2ᵘ⁻ᵈ)ᵗ, incorporating any whole-tuple decimation.
     let effective_cells_f64 = cells.to_f64().unwrap();
 
     // In tradeoff mode the user-supplied m is the per-pass memory; the actual
-    // number of points is m · 2^b, where b is the total number of top tradeoff
-    // bits of the combined index (the partition has 2^b contiguous value intervals).
+    // number of points is m · 2ᵇ, where b is the total number of top tradeoff
+    // bits of the combined index (the partition has 2ᵇ contiguous value intervals).
     // Decimation and the other modes use m as-is. Use a checked shift so an
     // out-of-range product is reported.
     let pass_factor = match args.tradeoff {
@@ -663,7 +662,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
         let max_points = (effective_cells_f64.powf(5.0 / 12.0)
             / (2.0 * args.reps as f64).powf(1.0 / 3.0)) as usize;
         // With a tradeoff, m is the per-class/per-interval memory and the total
-        // point count is m · 2^b (only ~points / 2^b are ever resident), mirroring
+        // point count is m · 2ᵇ (only ~points / 2ᵇ are ever resident), mirroring
         // the collision tradeoff; without one, pass_factor is 1 and points = m.
         let m = args.m.unwrap_or(max_points / pass_factor.max(1));
         points = m.checked_mul(pass_factor).expect("m · 2^b overflows usize");
@@ -680,7 +679,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
             .to_usize()
             .unwrap();
         let m = args.m.unwrap_or(m_default);
-        points = m.checked_mul(pass_factor).expect("m · 2^b overflows usize");
+        points = m.checked_mul(pass_factor).expect("m · 2ᵇ overflows usize");
 
         if BigUint::from(points) > *cells {
             Args::die(&format!(
@@ -728,12 +727,12 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
 
     let d = args.decimate.unwrap_or(0);
     let tradeoff_b = args.tradeoff_bits(); // tradeoff bits b (0 when absent)
-    // Fixed-sample model: a pass scans scan_len = points · 2^(t·d) samples and
+    // Fixed-sample model: a pass scans scan_len = points · 2ᵗᵈ samples and
     // keeps the accepted (decimation) and key-matching (tradeoff) subset. Buffer
     // headroom is the balls-into-bins bound over the t·d + b selectivity bits.
     let partition_bits = args.t * d + tradeoff_b;
     let scan_len = scan_samples(points, args.t, d);
-    // The birthday tradeoff accumulates one spacing-class (~points / 2^b spacings)
+    // The birthday tradeoff accumulates one spacing-class (~points / 2ᵇ spacings)
     // in this buffer and keeps each value-interval points in an internal scratch;
     // every other mode fills this buffer directly from the sample scan.
     let buf_len = if args.birthday_spacings && tradeoff_b > 0 {
@@ -750,7 +749,10 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
     };
 
     let headroom_suffix = if partition_bits > 0 {
-        let mean = (scan_len as f64) / (1u64 << partition_bits) as f64;
+        // `partition_bits` = t·d + b can exceed 63 via the decimation term even
+        // though b < 64, so compute 2^partition_bits in floating point to avoid a
+        // shift overflow (this is a cosmetic header figure only).
+        let mean = (scan_len as f64) / 2.0f64.powi(partition_bits as i32);
         format!(" (+{:.2}%)", (buf_len as f64 / mean - 1.0) * 100.0)
     } else {
         String::new()

@@ -4,9 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-//! The birthday-spacings test: sequential runners (plain and the two-level
-//! tradeoff), the spacing computation, and the faithful parallel runner
-//! [`run_birthday_parallel`].
+//! The birthday-spacings test.
 
 use std::mem::size_of;
 
@@ -28,10 +26,9 @@ use crate::util::{Stopwatch, parallelism};
 /// Runs a birthday-spacings test.
 ///
 /// With decimation (`DECIMATE`), this uses the same fixed-sample model as the
-/// collision tests: scan `points · 2^(t·d)` candidate tuples and keep the
-/// ~`points` accepted (dense) indices. Without decimation it fills exactly
-/// `points` cells. The parallel counterpart is [`run_birthday_parallel`], which is
-/// bit-identical to this runner for every CPU count.
+/// collision tests: scan `points` · 2*ᵗᵈ* candidate tuples and keep the
+/// ~`points` accepted (dense) indices. Without decimation it generates exactly
+/// `points` points. The parallel counterpart is [`run_birthday_parallel`].
 ///
 /// Returns the spacing-collision count and the number of points actually kept.
 pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL: bool>(
@@ -80,8 +77,8 @@ pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL:
 /// Parallel in-place spacings of a sorted slice, differencing each element against
 /// its predecessor in the sorted order.
 ///
-/// `predecessor` is the largest value strictly below this slice — the previous
-/// value interval maximum — so the first element receives `v[0] - predecessor`.
+/// `predecessor` is the largest value strictly below this slice (the previous
+/// value interval maximum) so the first element receives `v[0] - predecessor`.
 /// When it is `None` the first element is the global minimum and is left untouched
 /// (its circular wrap-around spacing is applied separately by the caller).
 pub(crate) fn compute_spacings_with_predecessor<T: Cell>(v: &mut [T], predecessor: Option<T>) {
@@ -119,12 +116,11 @@ pub(crate) fn compute_spacings_with_predecessor<T: Cell>(v: &mut [T], predecesso
 /// like [`compute_spacings_with_predecessor`] with no predecessor, but the first
 /// element receives the circular wrap-around `cells - max + min`.
 ///
-/// The wrap-around lies in `[1..=cells]` — one value beyond the cell indices — and
-/// reaches `cells` exactly when `min == max`, which may not be representable
-/// (`cells` can be 2^N in N-bit storage). It is therefore evaluated through the
-/// always-representable `cells - 1`, and in the degenerate case replaced by a
-/// nonzero stand-in: all other spacings are then zero, so the collision count is
-/// unaffected.
+/// The wrap-around lies in `[1..=cells]` and reaches `cells` exactly when `min
+/// == max`, which may not be representable (`cells` can be 2^N in N-bit
+/// storage). It is therefore evaluated through the always-representable `cells - 1`,
+/// and in the degenerate case replaced by a nonzero stand-in: all other
+/// spacings are then zero, so the collision count is unaffected.
 pub(crate) fn compute_spacings<T: Cell>(v: &mut [T], cells: &BigUint) {
     if v.is_empty() {
         return;
@@ -152,8 +148,9 @@ pub(crate) fn compute_spacings<T: Cell>(v: &mut [T], cells: &BigUint) {
 ///   border predecessor, and the global minimum's wrap-around (`cells` − max + min)
 ///   is applied once. Because the intervals are contiguous and visited in order,
 ///   these are exactly the spacings of the global sorted sequence.
+///
 /// - **Outer (counting) level:** spacings are classified by their *low* *b* bits,
-///   not their top bits — spacings cluster near zero (≈ exponential), so a top-bit
+///   not their top bits: spacings cluster near zero (≈ exponential), so a top-bit
 ///   split would dump almost everything into one class, whereas the low bits are
 ///   balanced. Only the current class's spacings are kept, sorted, and counted;
 ///   equal spacings share all bits hence the same class, so the per-class counts
@@ -300,10 +297,10 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
             prev_max = Some(interval_max);
         }
 
-        // Wrap-around spacing of the global minimum: cells − global_max + global_min.
-        // It equals cells — possibly unrepresentable — iff gmin == gmax, i.e., all
-        // points coincide; every other spacing is then 0 ≠ wrap, so dropping it
-        // leaves the collision count unchanged.
+        // Wrap-around spacing of the global minimum: cells − global_max +
+        // global_min. It equals cells (possibly unrepresentable) iff gmin ==
+        // gmax, i.e., all points coincide; every other spacing is then 0 ≠
+        // wrap, so dropping it leaves the collision count unchanged.
         if let (Some(gmin), Some(gmax)) = (global_min, global_max) {
             if gmin != gmax {
                 let mut wrap = cells_m1 - gmax;
@@ -349,18 +346,18 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
 
 /// Parallel birthday-spacings test with the two-level top-bit tradeoff.
 ///
-/// Reuses the faithful orbit split of [`crate::collision::run_test_parallel`]. The
-/// combined index is split into 2*ᵇ* contiguous value intervals by its top *b* bits,
-/// visited in order; per interval the per-thread blocks are gathered into one buffer
-/// and sorted. The sorted interval is kept read-only; its spacings (`interval[i] −
-/// interval[i−1]`, with the first element of the first non-empty interval taken
-/// against `prev_max`, the previous interval's maximum) are computed on the fly by
-/// the parallel filter and the matching ones compacted into the current
-/// spacing-class's buffer. Spacings are accumulated per spacing-class (their low *b*
-/// bits — balanced, unlike the top bits which cluster near zero) and counted. With
-/// `b == 0` this degenerates to a plain parallel birthday test (one interval, one
-/// class). The summed count is bit-identical to the sequential
-/// [`run_birthday_tradeoff`] for any CPU count.
+/// Reuses the faithful orbit split of [`crate::collision::run_test_parallel`].
+/// The combined index is split into 2*ᵇ* contiguous value intervals by its top
+/// *b* bits, visited in order; per interval the per-thread blocks are gathered
+/// into one buffer and sorted. The sorted interval is kept read-only; its
+/// spacings (`interval[i] − interval[i−1]`, with the first element of the first
+/// non-empty interval taken against `prev_max`, the previous interval's
+/// maximum) are computed on the fly by the parallel filter and the matching
+/// ones compacted into the current spacing-class's buffer. Spacings are
+/// accumulated per spacing-class (their low *b* bits, which are balanced,
+/// unlike the top bits which cluster near zero) and counted. With `b == 0` this
+/// degenerates to a plain parallel birthday test (one interval, one class). The
+/// summed count is identical to the sequential [`run_birthday_tradeoff`].
 ///
 /// Returns the total collision count and the summed per-repetition Poisson
 /// means, each conditioned on the points the repetition actually kept (see
@@ -538,8 +535,7 @@ pub fn run_birthday_parallel<T: Cell>(
                 // at 1. The spacings are never reused (interval_max and interval[0] were
                 // already captured) and the class buffer is sorted later, so order is
                 // irrelevant: keep interval read-only and compact in parallel with a
-                // count-then-write two-pass over num_cpus chunks. This was the one phase
-                // that stayed single-threaded.
+                // count-then-write two-pass over num_cpus chunks.
                 let start = if prev_max.is_none() { 1 } else { 0 };
                 let interval: &[T] = interval;
                 let span = total - start;
@@ -573,8 +569,9 @@ pub fn run_birthday_parallel<T: Cell>(
                 if class_len + matched > class.len() {
                     bin_overflow("a birthday-spacings class");
                 }
-                // Pass 2 — write each chunk's matches into its own disjoint slot of the
-                // class buffer (prefix-sum offsets), recomputing the same spacings.
+                // Phase 2: write each chunk matches into its own disjoint slot
+                // of the class buffer (prefix-sum offsets), recomputing the
+                // same spacings.
                 {
                     let mut rest = &mut class[class_len..class_len + matched];
                     let mut dsts: Vec<&mut [T]> = Vec::with_capacity(num_cpus);

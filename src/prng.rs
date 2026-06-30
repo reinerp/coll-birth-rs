@@ -6,9 +6,10 @@
 
 //! Pseudorandom number generators selected at build time via Cargo features.
 //!
-//! Exactly one feature must be enabled when building the crate; each variant exposes
-//! a single [`Prng`] type with a `new(seed: u64) -> Self` constructor and a
-//! `next_u64(&mut self) -> u64` step function.
+//! Exactly one feature must be enabled when building the crate; each variant
+//! exposes a single [`Prng`] type with a `new(seed: u64) -> Self` constructor,
+//! a `next_u64(&mut self) -> u64` step function, and a `try_skip(&mut self, n:
+//! u64) -> Result<(), ()>` method to skip ahead by `n` steps.
 //!
 //! Generators outputting less than 64 bits must shift their outputs to the top
 //! (e.g., 32-bit generators must return their output shifted to the left by 32).

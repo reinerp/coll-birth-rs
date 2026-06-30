@@ -33,7 +33,7 @@ pub struct Args {
     pub tradeoff: Option<usize>,
 
     /// Decimate: keep only tuples in which every coordinate's lowest d bits are zero;
-    /// a fixed m · 2ᵗᵈ samples are scanned, keeping ~m.​
+    /// a fixed m · 2ᵇ · 2ᵗᵈ samples are scanned, keeping ~m · 2ᵇ.​
     #[arg(short = 'd', long, value_name = "d")]
     pub decimate: Option<usize>,
 
@@ -60,9 +60,7 @@ pub struct Args {
     /// Run in parallel on P CPUs; bare `-P` uses all available, or pass a count as `-P=P`. The
     /// single sequential orbit is split into P contiguous segments, so the result is
     /// identical to a sequential run for every generator and mode: jump-capable generators
-    /// jump to each segment start, others reach it with a sequential pre-scan (cost
-    /// amortized over tradeoff and decimation passes; a full extra sequential pass in
-    /// plain mode).​
+    /// jump to each segment start, others reach it with a sequential pre-scan.​
     #[arg(short = 'P', long, value_name = "P", num_args = 0..=1, require_equals = true, default_missing_value = "0")]
     pub parallel: Option<usize>,
 
@@ -129,6 +127,13 @@ impl Args {
                     b,
                     self.t * (self.u - d)
                 ));
+            }
+            // The number of passes is 2^b and must fit in a u64; b >= 64 also
+            // describes a wholly infeasible run (≥ 2^64 passes). Capping here keeps
+            // every `1u64 << b` site (validation, the --pass share, the runners)
+            // from shift-overflowing.
+            if b >= 64 {
+                Self::die(&format!("--tradeoff b ({b}) must be less than 64"));
             }
         }
         if self.checkpoints && self.birthday_spacings {

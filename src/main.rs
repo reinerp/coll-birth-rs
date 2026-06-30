@@ -4,9 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-//! Command-line entry point: parse and validate arguments, pick the cell integer
-//! width, and dispatch into the sequential or parallel collision /
-//! birthday-spacings runners in the [`coll_birth`] library.
+//! Command-line entry point.
 
 use clap::Parser;
 use num::BigUint;
@@ -94,9 +92,7 @@ fn main() {
 
     if let Some(k) = args.pass {
         // Single-pass mode (--pass): emit this unit's raw count and its nominal
-        // lambda share (lambda_total / 2^b, summed over repetitions). Summing all
-        // 2^b single-pass runs reproduces a full -b run's (count, lambda, p) for a
-        // non-decimated test; see docs/superpowers/specs/2026-06-18-single-pass-tradeoff-design.md.
+        // lambda share (lambda_total / 2ᵇ, summed over repetitions).
         let num_passes = 1u64 << args.tradeoff_bits();
         let lambda_k = args.reps as f64
             * test_lambda(points, cells.to_f64().unwrap(), args.birthday_spacings)

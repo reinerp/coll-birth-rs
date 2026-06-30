@@ -58,7 +58,7 @@ pub fn expected_collisions(points: f64, cells: f64) -> f64 {
 /// approach to 1.
 ///
 /// A left-tail anomaly (too few collisions) has *p*-value `1 − p_left` with
-/// `p_left = P[X ≤ coll]` astronomically small. Storing that as a single `f64`
+/// `p_left = Pr[X ≤ coll]` astronomically small. Storing that as a single `f64`
 /// would round it to exactly `1.0` as soon as `p_left` drops below the machine
 /// epsilon (~1.1·10⁻¹⁶), discarding the tail. We therefore keep `p_left` itself
 /// in [`PValue::NearOne`] and defer the lossy `1 − ε` subtraction to formatting,
@@ -111,8 +111,7 @@ pub fn format_p_value(p: PValue, pretty_p: bool) -> Cow<'static, str> {
         // just below 1 (`1 − 1e-307`, regardless of pretty mode) rather than a bare
         // "1", which would read as a perfect/degenerate value. Otherwise pretty
         // mode prints the tail exactly, and plain mode falls back to the decimal
-        // 1 − eps (which may itself round to "1" for tiny eps — the best a bare
-        // decimal can do).
+        // 1 − eps (which may itself round to "1" for tiny eps).
         PValue::NearOne(eps) => {
             if eps == 0.0 {
                 "1 − 1e-307".into()

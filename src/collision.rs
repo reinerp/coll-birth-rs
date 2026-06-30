@@ -4,8 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-//! The collision test: sequential runners (plain, tradeoff, decimation) and the
-//! faithful parallel runner [`run_test_parallel`].
+//! The collision test.
 
 use std::mem::size_of;
 
@@ -92,21 +91,22 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
     // one pass actually runs (a real tradeoff, not a single --pass unit).
     let multi_pass = pass_hi - pass_lo > 1;
 
-    // Fixed-sample scan: each pass scans scan_len = points · 2^(t·d) samples
-    // (each sample is t draws) and keeps those that survive decimation and match
-    // the pass key. With d = 0 this is just points samples, keeping ~points /
-    // 2*ᵇ* per pass; the per-pass local advances by exactly scan_len samples.
+    // Fixed-sample scan: each pass scans scan_len = points · 2ᵗᵈ samples (each
+    // sample is t draws) and keeps those that survive decimation and match the
+    // pass key. With d = 0 this is just points samples, keeping ~points / 2ᵇ
+    // per pass; the per-pass local advances by exactly scan_len samples.
     let scan_len = scan_samples(points, t, d);
 
     // Element width in the assembled index: decimation compacts each element to
     // u - d bits, so the combined index spans t · elem_width bits.
     let elem_width = if DECIMATE { u - d } else { u };
 
-    // The tradeoff partitions the combined index into 2^b contiguous value intervals
-    // by its top b bits: pass k holds the points whose top b bits equal k. Equal
-    // points share all bits, hence the same interval, so per-pass collision counts
-    // still sum to the exact total; visiting passes in order 0..2^b walks the
-    // intervals in value order (which the birthday border carry will rely on).
+    // The tradeoff partitions the combined index into 2ᵇ contiguous value
+    // intervals by its top b bits: pass k holds the points whose top b bits
+    // equal k. Equal points share all bits, hence the same interval, so
+    // per-pass collision counts still sum to the exact total; visiting passes
+    // in order 0..2ᵇ walks the intervals in value order (which the birthday
+    // border carry will rely on).
     let key_shift = t * elem_width - b;
     let key_of = |x: T| -> T {
         let mut key = x;
@@ -182,7 +182,7 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
 ///
 /// When `checkpoints` is true, the run is split into ⌊√(2*ᵈ*)⌋ equally spaced
 /// (in `next_u64`-call count) stages, with a cumulative *p*-value emitted after
-/// each — matching the per-pass cadence of [`run_collision_tradeoff`] with
+/// eac, matching the per-pass cadence of [`run_collision_tradeoff`] with
 /// *b* = *d*/2, so the two outputs are directly comparable. Each new chunk is
 /// sorted in a small auxiliary buffer and merged into the sorted prefix in
 /// `buf` via a three-pointer right-to-left merge, so the per-checkpoint cost
@@ -202,7 +202,7 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
 ) -> (usize, usize) {
     let t = params.t;
     let d = params.d;
-    // Fixed-sample: scan scan_len = points · 2^(t·d) candidate tuples and keep
+    // Fixed-sample: scan scan_len = points · 2ᵗᵈ candidate tuples and keep
     // the ~points that survive decimation. The kept count is a random variable,
     // so the buffer carries balls-into-bins headroom (see run_test's buf_len).
     let scan_len = scan_samples(points, t, d);
@@ -229,7 +229,7 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
         return (c, len);
     }
 
-    // Checkpoints: split the scan_len samples into ⌊√(2^d)⌋ equal stages, keeping
+    // Checkpoints: split the scan_len samples into ⌊√2ᵈ⌋ equal stages, keeping
     // each stage's accepted points in aux, merging into the cumulative buf, and
     // emitting a cumulative p-value after each stage.
     let num_checkpoints = (((1u64 << d) as f64).sqrt() as usize).clamp(1, scan_len);
@@ -283,25 +283,24 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
 /// Parallel version of the collision test.
 ///
 /// The sequential orbit segment of a pass (`scan_total` samples) is split into
-/// `num_cpus` contiguous sample-ranges; each thread owns one range and one
-/// buffer of `~points / num_cpus` slots, reused across passes. A thread reaches
-/// the start of its range by jump-ahead (`try_skip`) or, for non-jumpable
-/// generators, through a sequential pre-scan ([`crate::common::prescan_checkpoints`]);
-/// repetitions *continue* each orbit rather than reseeding. The result is
-/// bit-identical to the sequential [`crate::common::run_test`] for every CPU count,
-/// repetition by repetition.
-/// A "pass" is a single sweep when no tradeoff is active; with `--tradeoff b`
-/// there are 2*ᵇ* passes, one per top-bit value interval, exactly as in the
-/// sequential [`run_collision_tradeoff`].
+/// `num_cpus` contiguous sample-ranges; each thread owns one range and fills a
+/// disjoint sub-region of a single shared pass buffer (`~points / num_cpus`
+/// slots per thread, reused across passes). A thread reaches the start of its
+/// range by jump-ahead (`try_skip`) or, for non-jumpable generators, through a
+/// sequential pre-scan (`prescan_checkpoints`); repetitions continue each orbit
+/// rather than reseeding. The result is identical to the sequential
+/// [`crate::common::run_test`]. A "pass" is a single sweep when no tradeoff is
+/// active; with `--tradeoff b` there are 2*ᵇ* passes, one per top-bit value
+/// interval, exactly as in the sequential [`run_collision_tradeoff`].
 ///
-/// For each pass every thread fills and single-thread-sorts its buffer, then
-/// the `num_cpus` sorted buffers are counted by a parallel value-segmented merge
-/// (see [`merge_count_collisions`]) so collisions *across* threads are counted
-/// without serializing on one core. The per-pass counts are summed. Because the
-/// pass loop wraps the thread spawn —
-/// rather than living inside each thread — the live memory is one pass' worth
-/// (~`points` / 2*ᵇ*, split `num_cpus` ways) regardless of *b*, matching the
-/// sequential tradeoff's space behaviour.
+/// For each pass the threads fill their disjoint sub-regions of one contiguous
+/// buffer (`gen_unit_contiguous`); the gaps left by under-filled sub-regions
+/// are closed in place, then the single buffer is sorted once using all cores
+/// (`sort_mt`) and counted by one linear `count_adjacent_equals`, so collisions
+/// *across* former thread boundaries are counted without a k-way merge. The
+/// per-pass counts are summed. Because the pass loop wraps the thread spawn the
+/// live memory is one pass' worth (~`points` / 2*ᵇ*, split `num_cpus` ways)
+/// regardless of *b*, matching the sequential tradeoff's space behaviour.
 ///
 /// Returns the total collision count and the summed per-repetition Poisson
 /// means, each conditioned on the points the repetition actually kept (see
@@ -338,7 +337,7 @@ pub fn run_test_parallel<T: Cell>(
 
     let decimating = d > 0;
 
-    // Fixed-sample: each pass scans scan_total = points · 2^(t·d) samples, split into
+    // Fixed-sample: each pass scans scan_total = points · 2ᵗᵈ samples, split into
     // num_cpus contiguous sample-ranges reached by jump-ahead or a chained pre-scan
     // (see OrbitPartition). Every mode is faithful — there is no decorrelated fallback.
     // Per-chunk buffer headroom spans the t·(d+b) residue bits.
@@ -426,8 +425,9 @@ pub fn run_test_parallel<T: Cell>(
 
                 let stage_buf: &mut [T] = bytemuck::try_cast_slice_mut(&mut stage_mmap).unwrap();
 
-                // Phase 1 — generate this stage into one contiguous buffer (decimation,
-                // no tradeoff): threads fill disjoint sub-regions, gaps compacted away.
+                // Phase 1: generate this stage into one contiguous buffer
+                // (decimation, no tradeoff): threads fill disjoint sub-regions,
+                // gaps compacted away.
                 let stage_len = gen_unit_contiguous::<T>(
                     stage_buf,
                     &stage_caps,
@@ -441,16 +441,16 @@ pub fn run_test_parallel<T: Cell>(
                 );
                 eprint!("[{:.3}s] sort...", psw.lap());
 
-                // Phase 2 — sort the contiguous stage run.
+                // Phase 2: sort the contiguous stage run.
                 T::sort_mt(&mut stage_buf[..stage_len]);
                 eprint!("[{:.3}s] merge...", psw.lap());
 
-                // Fold the sorted stage run into the cumulative sorted accumulator with a
-                // two-way merge (no heap); the accumulator stays sorted so each
-                // checkpoint count is a linear scan.
+                // Fold the sorted stage run into the cumulative sorted
+                // accumulator with a two-way merge (no heap); the accumulator
+                // stays sorted so each checkpoint count is a linear scan.
                 let acc_slice: &mut [T] = bytemuck::try_cast_slice_mut(&mut acc).unwrap();
-                // The cumulative kept count is itself headroom-bounded; check before
-                // the merge writes past the end of the accumulator.
+                // The cumulative kept count is itself headroom-bounded; check
+                // before the merge writes past the end of the accumulator.
                 if acc_len + stage_len > acc_slice.len() {
                     bin_overflow("the checkpoint accumulator");
                 }
@@ -486,7 +486,8 @@ pub fn run_test_parallel<T: Cell>(
     }
 
     // Per-thread sub-region capacities of the one big buffer; their prefix sums
-    // are the sub-region starts that gen_unit_contiguous writes into and compacts.
+    // are the sub-region starts that gen_unit_contiguous writes into and
+    // compacts.
     let caps: Box<[usize]> = (0..num_cpus).map(buf_len).collect();
 
     for rep in 1..=args.reps {
@@ -517,20 +518,20 @@ pub fn run_test_parallel<T: Cell>(
 
             let buf: &mut [T] = bytemuck::try_cast_slice_mut(&mut buf_mmap).unwrap();
 
-            // Phase 1 — generate into one contiguous buffer: each thread fills its
-            // own disjoint sub-region from its orbit snapshot, then the gaps left by
-            // under-filled sub-regions are compacted away (a no-op in plain mode,
-            // where every thread keeps exactly its chunk).
+            // Phase 1: generate into one contiguous buffer: each thread fills
+            // its own disjoint sub-region from its orbit snapshot, then the
+            // gaps left by under-filled sub-regions are compacted away (a no-op
+            // in plain mode, where every thread keeps exactly its chunk).
             let pass_points = gen_unit_contiguous::<T>(
                 buf, &caps, &snapshots, &params, &chunk, pass, tradeoff_b, decimating, full,
             );
             eprint!("[{:.3}s] sort...", psw.lap());
 
-            // Phase 2 — one sort over the whole contiguous unit.
+            // Phase 2: one sort over the whole contiguous unit.
             T::sort_mt(&mut buf[..pass_points]);
             eprint!("[{:.3}s] count...", psw.lap());
 
-            // Phase 3 — one linear scan; the union is already contiguous and sorted,
+            // Phase 3: one linear scan; the union is already contiguous and sorted,
             // so collisions spanning former thread boundaries are counted too.
             let c = count_adjacent_equals(&buf[..pass_points]);
 

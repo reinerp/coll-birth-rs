@@ -13,10 +13,6 @@ pub mod cell;
 pub mod cli;
 pub mod collision;
 pub mod common;
-// `try_skip` returns `Result<(), ()>` as a capability probe (Ok = skip-capable,
-// Err = not), an intentional internal signal rather than a real error type; the
-// signature is shared across every per-generator impl, so allow the public-API
-// lint module-wide instead of annotating each one.
 #[allow(dead_code, clippy::result_unit_err)]
 pub mod prng;
 pub mod stats;
