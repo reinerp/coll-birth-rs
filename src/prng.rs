@@ -383,6 +383,34 @@ impl Prng {
     }
 }
 
+// ----- wyrand variant (https://github.com/wangyi-fudan/wyhash/issues/130#issuecomment-4835746792) -----------
+
+#[cfg(feature = "wyrand-reinerp")]
+#[derive(Clone, Copy)]
+pub struct Prng {
+    x: u64,
+}
+
+#[cfg(feature = "wyrand-reinerp")]
+impl Prng {
+    pub const NAME: &str = "wyrand";
+    pub fn new(seed: u64) -> Self {
+        Self { x: seed }
+    }
+
+    #[inline(always)]
+    pub fn next_u64(&mut self) -> u64 {
+        let y = self.x;
+        self.x = self.x.wrapping_add(0xa0761d6478bd642f);
+        let t = ((y ^ 0xe7037ed1a0b428db) as u128).wrapping_mul(self.x as u128);
+        ((t >> 64) ^ t) as u64
+    }
+    pub fn try_skip(&mut self, n: u64) -> Result<(), ()> {
+        self.x = self.x.wrapping_add(n.wrapping_mul(0xa0761d6478bd642f));
+        Ok(())
+    }
+}
+
 // ----- Romu family --------------------------------------------------------------------
 
 #[cfg(feature = "romuduo")]
