@@ -66,20 +66,20 @@ processors it becomes competitive.
 # Decimation
 
 To the best of my knkowledge, Melissa O'Neill's has been the first to [propose
-the use of decimation] to make a collision test most powerful (but note that her
-new “birthday test” in the quoted reference is just the standard collision test
-you can find in Knuth's TAoCP). Decimation increases the number of expected collisions
-because the approximate mean of the distribution in the sparse case is given by the square
-of the number of points divided by the number of cells. Since each of the _t_
-numbers forming a tuple has its _d_ lower bits equal to zero, tuples can collide
-only among themselves, and the mean is multiplied by 2*ᵗᵈ* with respect to an
-undecimated test.
+the use of decimation] to make a one-dimensional collision test most powerful
+(but note that her new “birthday test” in the quoted reference is just the
+standard collision test you can find in Knuth's TAoCP). Decimation increases the
+number of expected collisions because the approximate mean of the distribution
+in the sparse case is given by the square of the number of points divided by the
+number of cells.
 
-The idea can be extended to any subset of bits being equal to any set of bit
-pattern, or more general mappings.
+We extend the idea to _t_-dimensional tests. We consider only tuples in which
+each of the _t_ numbers has its _d_ lower bits equal to zero, so tuples can
+collide only among themselves, and the mean is multiplied by 2*ᵗᵈ* with respect
+to an undecimated test. We also extend decimation to the birthday-spacings test.
 
-We extend decimation to the birthday-spacings test, by keeping only tuples in
-which all elements have the lower _d_ bits equal to zero.
+Decimation can also be applied by considering any subset of bits being equal to
+any set of bit pattern, or more general mappings.
 
 # Repetitions
 
