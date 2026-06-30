@@ -186,6 +186,9 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
         Some(k) => (k, k + 1),
         None => (0, num_passes),
     };
+    // The per-class "combined:" suffix only adds information when more than one
+    // spacing-class runs (a real tradeoff, not a single --pass class).
+    let multi_pass = pass_hi - pass_lo > 1;
     let elem_width = if DECIMATE { u - d } else { u };
     let point_key_shift = t * elem_width - b; // top b bits select the value interval
     let spacing_mask = T::low_bits_mask(b); // low b bits select the spacing class
@@ -319,17 +322,22 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
         let class_coll = count_adjacent_equals(&class_buf[..class_len]);
         total_coll += class_coll;
         let classes_done = (j - pass_lo + 1) as f64;
-        eprintln!(
-            "  Class {}/{} done: [{:.3}s], {class_len} spacings, {class_coll} collisions, p={}; combined: {total_coll} collisions, p={}",
-            j + 1,
-            num_passes,
-            class_sw.lap(),
-            format_p_value(p_value(class_coll as f64, lambda_class), pretty_p),
-            format_p_value(
-                p_value(total_coll as f64, classes_done * lambda_class),
-                pretty_p
-            ),
-        );
+        let elapsed = class_sw.lap();
+        let class_p = format_p_value(p_value(class_coll as f64, lambda_class), pretty_p);
+        if multi_pass {
+            eprintln!(
+                "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}; combined: {total_coll} collisions, p={}",
+                j + 1,
+                num_passes,
+                format_p_value(p_value(total_coll as f64, classes_done * lambda_class), pretty_p),
+            );
+        } else {
+            eprintln!(
+                "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}",
+                j + 1,
+                num_passes,
+            );
+        }
     }
     *prng = end_state;
     eprintln!("[{:.3}s] done.", sw.lap());
@@ -460,6 +468,9 @@ pub fn run_birthday_parallel<T: Cell>(
             Some(k) => (k, k + 1),
             None => (0, num_passes),
         };
+        // The per-class "combined:" suffix only adds information when more than one
+        // spacing-class runs (a real tradeoff, not plain mode or a single --pass class).
+        let multi_pass = pass_hi - pass_lo > 1;
         eprintln!(
             "Rep {}/{}: {} value intervals x {} spacing classes",
             rep, args.reps, num_passes, num_passes
@@ -619,31 +630,38 @@ pub fn run_birthday_parallel<T: Cell>(
             let class_coll = count_adjacent_equals(&class[..class_len]);
             rep_coll += class_coll;
             let classes_done = (j - pass_lo + 1) as f64;
-            eprintln!(
-                "  Class {}/{} done: [{:.3}s], {class_len} spacings, {class_coll} collisions, p={}; combined: {rep_coll} collisions, p={}",
-                j + 1,
-                num_passes,
-                class_sw.lap(),
-                format_p_value(p_value(class_coll as f64, lambda_class), args.pretty_p),
-                format_p_value(
-                    p_value(rep_coll as f64, classes_done * lambda_class),
-                    args.pretty_p
-                ),
-            );
+            let elapsed = class_sw.lap();
+            let class_p = format_p_value(p_value(class_coll as f64, lambda_class), args.pretty_p);
+            if multi_pass {
+                eprintln!(
+                    "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}; combined: {rep_coll} collisions, p={}",
+                    j + 1,
+                    num_passes,
+                    format_p_value(p_value(rep_coll as f64, classes_done * lambda_class), args.pretty_p),
+                );
+            } else {
+                eprintln!(
+                    "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}",
+                    j + 1,
+                    num_passes,
+                );
+            }
         }
 
         tot += rep_coll as u128;
         // Condition the per-rep Poisson mean on the points actually kept.
         let lambda_rep = test_lambda(rep_points, cells_f64, true);
         lambda_sum += lambda_rep;
-        eprintln!(
-            "[{:.3}s] {}\tp={}\tcombined: {}\tp={}",
-            psw.lap(),
-            rep_coll,
-            format_p_value(p_value(rep_coll as f64, lambda_rep), args.pretty_p),
-            tot,
-            format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
-        );
+        let elapsed = psw.lap();
+        let rep_p = format_p_value(p_value(rep_coll as f64, lambda_rep), args.pretty_p);
+        if args.reps > 1 {
+            eprintln!(
+                "[{elapsed:.3}s] {rep_coll}\tp={rep_p}\tcombined: {tot}\tp={}",
+                format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
+            );
+        } else {
+            eprintln!("[{elapsed:.3}s] {rep_coll}\tp={rep_p}");
+        }
     }
     eprintln!("Test completed in {:.2} seconds", sw.lap());
     (tot, lambda_sum)

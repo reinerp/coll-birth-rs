@@ -942,13 +942,15 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
         // is random and conditioning avoids overdispersion.
         let lambda_rep = test_lambda(used, effective_cells_f64, args.birthday_spacings);
         lambda_sum += lambda_rep;
-        eprintln!(
-            "{}\tp={}\tcombined: {}\tp={}",
-            c,
-            format_p_value(p_value(c as f64, lambda_rep), args.pretty_p),
-            tot,
-            format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
-        );
+        let rep_p = format_p_value(p_value(c as f64, lambda_rep), args.pretty_p);
+        if args.reps > 1 {
+            eprintln!(
+                "{c}\tp={rep_p}\tcombined: {tot}\tp={}",
+                format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
+            );
+        } else {
+            eprintln!("{c}\tp={rep_p}");
+        }
     }
     eprintln!("Test completed in {:.2} seconds", sw.lap());
     (tot, lambda_sum)

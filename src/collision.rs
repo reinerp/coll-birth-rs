@@ -88,6 +88,9 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
         Some(k) => (k, k + 1),
         None => (0, num_passes),
     };
+    // The cumulative "combined:" suffix only carries new information when more than
+    // one pass actually runs (a real tradeoff, not a single --pass unit).
+    let multi_pass = pass_hi - pass_lo > 1;
 
     // Fixed-sample scan: each pass scans scan_len = points · 2^(t·d) samples
     // (each sample is t draws) and keeps those that survive decimation and match
@@ -148,15 +151,18 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
         let lambda_pass = expected_collisions(len as f64, cells_per_pass);
         total_coll += c;
         total_len += len;
-        let lambda_so_far = expected_collisions(total_len as f64, (k + 1) as f64 * cells_per_pass);
-        eprintln!(
-            "[{:1.3}s], {len} points, {} collisions, p={}; combined: {total_len} points, {} collisions, p={}",
-            sw.lap(),
-            c,
-            format_p_value(p_value(c as f64, lambda_pass), pretty_p),
-            total_coll,
-            format_p_value(p_value(total_coll as f64, lambda_so_far), pretty_p)
-        );
+        let elapsed = sw.lap();
+        let local_p = format_p_value(p_value(c as f64, lambda_pass), pretty_p);
+        if multi_pass {
+            let lambda_so_far =
+                expected_collisions(total_len as f64, (k + 1) as f64 * cells_per_pass);
+            eprintln!(
+                "[{elapsed:1.3}s], {len} points, {c} collisions, p={local_p}; combined: {total_len} points, {total_coll} collisions, p={}",
+                format_p_value(p_value(total_coll as f64, lambda_so_far), pretty_p)
+            );
+        } else {
+            eprintln!("[{elapsed:1.3}s], {len} points, {c} collisions, p={local_p}");
+        }
         end_state = local;
     }
     *prng = end_state;
@@ -457,13 +463,15 @@ pub fn run_test_parallel<T: Cell>(
             // Condition the per-rep Poisson mean on the points actually kept.
             let lambda_rep = test_lambda(acc_len, effective_cells_f64, false);
             lambda_sum += lambda_rep;
-            eprintln!(
-                "{}\tp={}\tcombined: {}\tp={}",
-                c,
-                format_p_value(p_value(c as f64, lambda_rep), args.pretty_p),
-                tot,
-                format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
-            );
+            let rep_p = format_p_value(p_value(c as f64, lambda_rep), args.pretty_p);
+            if args.reps > 1 {
+                eprintln!(
+                    "{c}\tp={rep_p}\tcombined: {tot}\tp={}",
+                    format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
+                );
+            } else {
+                eprintln!("{c}\tp={rep_p}");
+            }
         }
         eprintln!("Test completed in {:.2} seconds", sw.lap());
         return (tot, lambda_sum);
@@ -490,6 +498,9 @@ pub fn run_test_parallel<T: Cell>(
             Some(k) => (k, k + 1),
             None => (0, num_passes),
         };
+        // The per-pass "combined:" suffix only adds information when more than one
+        // pass runs (a real tradeoff, not plain mode or a single --pass unit).
+        let multi_pass = pass_hi - pass_lo > 1;
         for pass in pass_lo..pass_hi {
             // Generate / sort / count are run as separate, independently-timed phases,
             // matching the sequential run_collision_tradeoff progress line.
@@ -520,27 +531,33 @@ pub fn run_test_parallel<T: Cell>(
             total_points += pass_points;
             rep_coll += c;
             let lambda_pass = expected_collisions(pass_points as f64, cells_per_pass);
-            let lambda_so_far =
-                expected_collisions(total_points as f64, (pass + 1) as f64 * cells_per_pass);
-            eprintln!(
-                "[{:1.3}s], {pass_points} points, {c} collisions, p={}; combined: {total_points} points, {rep_coll} collisions, p={}",
-                psw.lap(),
-                format_p_value(p_value(c as f64, lambda_pass), args.pretty_p),
-                format_p_value(p_value(rep_coll as f64, lambda_so_far), args.pretty_p),
-            );
+            let elapsed = psw.lap();
+            let local_p = format_p_value(p_value(c as f64, lambda_pass), args.pretty_p);
+            if multi_pass {
+                let lambda_so_far =
+                    expected_collisions(total_points as f64, (pass + 1) as f64 * cells_per_pass);
+                eprintln!(
+                    "[{elapsed:1.3}s], {pass_points} points, {c} collisions, p={local_p}; combined: {total_points} points, {rep_coll} collisions, p={}",
+                    format_p_value(p_value(rep_coll as f64, lambda_so_far), args.pretty_p),
+                );
+            } else {
+                eprintln!("[{elapsed:1.3}s], {pass_points} points, {c} collisions, p={local_p}");
+            }
         }
 
         tot += rep_coll as u128;
         // Condition the per-rep Poisson mean on the points actually kept.
         let lambda_rep = test_lambda(total_points, cells_f64, false);
         lambda_sum += lambda_rep;
-        eprintln!(
-            "{}\tp={}\tcombined: {}\tp={}",
-            rep_coll,
-            format_p_value(p_value(rep_coll as f64, lambda_rep), args.pretty_p),
-            tot,
-            format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
-        );
+        let rep_p = format_p_value(p_value(rep_coll as f64, lambda_rep), args.pretty_p);
+        if args.reps > 1 {
+            eprintln!(
+                "{rep_coll}\tp={rep_p}\tcombined: {tot}\tp={}",
+                format_p_value(p_value(tot as f64, lambda_sum), args.pretty_p)
+            );
+        } else {
+            eprintln!("{rep_coll}\tp={rep_p}");
+        }
     }
     eprintln!("Test completed in {:.2} seconds", sw.lap());
     (tot, lambda_sum)
