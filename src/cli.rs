@@ -37,7 +37,7 @@ pub struct Args {
     #[arg(short = 'd', long, value_name = "d")]
     pub decimate: Option<usize>,
 
-    /// Print progressive p-values at ⌊√(2ᵈ)⌋ uniform checkpoints; works with -P.​
+    /// Print progressive p-values at ⌊√(2ᵗᵈ)⌋ uniform checkpoints; works with -P.​
     #[arg(short = 'c', long, requires = "decimate", conflicts_with = "tradeoff")]
     pub checkpoints: bool,
 

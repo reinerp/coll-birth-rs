@@ -70,9 +70,10 @@ the use of decimation] to make a collision test most powerful (but note that her
 new “birthday test” in the quoted reference is just the standard collision test
 you can find in Knuth's TAoCP). Decimation increases the number of expected collisions
 because the approximate mean of the distribution in the sparse case is given by the square
-of the number of points divided by the number of cells. Since numbers with the _d_
-lower bits equal to zero can cause collisions only among themselves, the mean is multiplied
-by 2*ᵈ* with respect to an undecimated test.
+of the number of points divided by the number of cells. Since each of the _t_
+numbers forming a tuple has its _d_ lower bits equal to zero, tuples can collide
+only among themselves, and the mean is multiplied by 2*ᵗᵈ* with respect to an
+undecimated test.
 
 The idea can be extended to any subset of bits being equal to any set of bit
 pattern, or more general mappings.
@@ -88,7 +89,7 @@ and then a single _p_-value is computed.
 # Comparison of techniques
 
 Given a budget of _m_ memory locations, a space-time tradeoff on _b_ bits,
-decimation with 2*b* bits, or performing 2*²ᵇ* repetitions will use the same
+decimation with 2*b*/*t* bits per dimension, or performing 2*²ᵇ* repetitions will use the same
 number of calls to the generator, and will end up comparing against the same
 mean. The amount of sorted data is the number of memory locations for the
 decimated test; the space-time tradeoff adds a factor of 2*ᵇ*, and repetitions
@@ -140,7 +141,7 @@ going. Since we were expecting _p_-values close to one, we used the
 pretty-printing option `-p` to switch to a more accurate display when
 the result is close to one.
 
-As we mentioned, since there are no collisions using decimation with 2*b* bits would be equivalent:
+As we mentioned, since there are no collisions using decimation with 2*b*/*t* bits per dimension would be equivalent (here _t_ = 1, so 4 bits):
 
 ```text
 cargo run -r -F splitmix -- 64 1 8000000000 -d 4 -p -P
@@ -245,7 +246,7 @@ tradeoffs the test would require half a terabyte of RAM.
 
 # Example: multiply-with-carry generators
 
-Marsaglia's multiply-with-carry generators are very fast generator with
+Marsaglia's multiply-with-carry generators are very fast generators with
 arbitrarily large periods. While they pass most typical statistical tests (in
 fact, with sufficient state, all tests), it is known that [their output is
 tightly coupled with that of a linear congruential generator with large prime

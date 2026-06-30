@@ -187,10 +187,11 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
 /// to stronger results in detecting faulty generators. The idea of decimation
 /// to strengthen the collision test was proposed by [Melissa O'Neill].
 ///
-/// When `checkpoints` is true, the run is split into ⌊√2*ᵈ*⌋ equally spaced
+/// When `checkpoints` is true, the run is split into ⌊√2*ᵗᵈ*⌋ equally spaced
 /// (in `next_u64`-call count) stages, with a cumulative *p*-value emitted after
 /// each stage, matching the per-pass cadence of [`run_collision_tradeoff`] with
-/// *b* = *d*/2, so the two outputs are directly comparable. Each new chunk is
+/// *b* = *t*·*d*/2 (the tradeoff a *d*-bit decimation is statistically equivalent
+/// to), so the two outputs are directly comparable. Each new chunk is
 /// sorted in a small auxiliary buffer and merged into the sorted prefix in
 /// `buf` via a three-pointer right-to-left merge, so the per-checkpoint cost
 /// is linear (not log-linear) in the accumulated size.
@@ -241,10 +242,11 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
         return (c, len);
     }
 
-    // Checkpoints: split the scan_len samples into ⌊√2ᵈ⌋ equal stages, keeping
+    // Checkpoints: split the scan_len samples into ⌊√2ᵗᵈ⌋ equal stages, keeping
     // each stage's accepted points in aux, merging into the cumulative buf, and
-    // emitting a cumulative p-value after each stage.
-    let num_checkpoints = (((1u64 << d) as f64).sqrt() as usize).clamp(1, scan_len);
+    // emitting a cumulative p-value after each stage. √2ᵗᵈ = 2^(t·d/2) is computed
+    // in f64 because t·d can exceed 63 (1 << t·d would overflow).
+    let num_checkpoints = (2.0f64.powf((t * d) as f64 / 2.0) as usize).clamp(1, scan_len);
     let aux_cap = buffer_size(scan_len.div_ceil(num_checkpoints), t * d).max(1);
     let mut aux: Vec<T> = vec![T::ZERO; aux_cap];
 
@@ -414,7 +416,9 @@ pub fn run_test_parallel<T: Cell>(
     // num_cpus == 1 this reproduces the sequential checkpoint runner exactly.
     if args.checkpoints {
         let effective_cells_f64 = cells.to_f64().unwrap();
-        let num_checkpoints = (((1u64 << d) as f64).sqrt() as usize).clamp(1, scan_total);
+        // ⌊√2ᵗᵈ⌋ stages (see run_collision_decimate); f64 since t·d can exceed 63.
+        let num_checkpoints =
+            (2.0f64.powf((args.t * d) as f64 / 2.0) as usize).clamp(1, scan_total);
         let acc_cap = buffer_size(scan_total, partition_bits);
         let max_stage = scan_total.div_ceil(num_checkpoints);
         let thread_cap = buffer_size(max_stage.div_ceil(num_cpus) + 1, partition_bits).max(1);
