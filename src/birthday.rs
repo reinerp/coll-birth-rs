@@ -452,7 +452,7 @@ pub fn run_birthday_parallel<T: Cell>(
     let live_elems: usize = interval_cap + class_cap;
 
     eprintln!(
-        "Running a parallel birthday-spacings test ({} CPUs, {}) on the upper {} bits of the {} \
+        "Running a {t}-dimensional parallel birthday-spacings test ({} CPUs, {}) on the upper {} bits of the {} \
          ({} points, {}-bit cells, {} memory locations, {:.3} GiB RAM{})",
         num_cpus,
         split_desc,

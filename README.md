@@ -89,7 +89,7 @@ and then a single _p_-value is computed.
 # Comparison of techniques
 
 Given a budget of _m_ memory locations, a space-time tradeoff on _b_ bits,
-decimation with 2*b*/*t* bits per dimension, or performing 2*²ᵇ* repetitions will use the same
+decimation with 2*b*/_t_ bits per dimension, or performing 2*²ᵇ* repetitions will use the same
 number of calls to the generator, and will end up comparing against the same
 mean. The amount of sorted data is the number of memory locations for the
 decimated test; the space-time tradeoff adds a factor of 2*ᵇ*, and repetitions
@@ -121,7 +121,7 @@ cargo run -r -F splitmix -- 64 1 8000000000 -b 2 -p -P
 Generator: SplitMix
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (32000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 2 top bits over 4 passes)
+Running a 1-dimensional parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (32000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 2 top bits over 4 passes)
 u: 64 t: 1 cells: 18446744073709551616 expected collisions: 27.755575598712134
 Pass 1/4: gen...[12.575s] sort...[25.045s] count...[1.047s], 7999983191 points, 0 collisions, p=0.9990306305409877; combined: 7999983191 points, 0 collisions, p=0.9990306305409877
 Pass 2/4: gen...[12.543s] sort...[21.221s] count...[1.048s], 7999927485 points, 0 collisions, p=0.9990305368624458; combined: 15999910676 points, 0 collisions, p=1 − 9.39767956526281e-7
@@ -141,14 +141,14 @@ going. Since we were expecting _p_-values close to one, we used the
 pretty-printing option `-p` to switch to a more accurate display when
 the result is close to one.
 
-As we mentioned, since there are no collisions using decimation with 2*b*/*t* bits per dimension would be equivalent (here _t_ = 1, so 4 bits):
+As we mentioned, since there are no collisions using decimation with 2*b*/_t_ bits per dimension would be equivalent (here _t_ = 1, so 4 bits):
 
 ```text
 cargo run -r -F splitmix -- 64 1 8000000000 -d 4 -p -P
 Generator: SplitMix
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, decimating 4 bits per dimension (~2⁴ candidate samples per kept sample))
+Running a 1-dimensional parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, decimating 4 bits per dimension (~2⁴ candidate samples per kept sample))
 u: 64 t: 1 cells: 1152921504606846976 expected collisions: 27.755575547961804 (effective cells after decimation: 2⁶⁰)
 Pass 1/1: gen...[18.642s] sort...[26.335s] count...[1.048s], 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13; combined: 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13
 0	p=1 − 8.829770712901635e-13	combined: 0	p=1 − 8.829770712901635e-13
@@ -163,7 +163,7 @@ cargo run -r -F splitmix -- 64 1 8000000000 -r 16 -p -P
 Generator: SplitMix
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.605 GiB RAM)
+Running a 1-dimensional parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.605 GiB RAM)
 u: 64 t: 1 cells: 18446744073709551616 expected collisions: 1.7347234755091947
 Pass 1/1: gen...[1.605s] sort...[24.610s] count...[1.048s], 8000000000 points, 0 collisions, p=0.8235510139931854; combined: 8000000000 points, 0 collisions, p=0.8235510139931854
 0	p=0.8235510139931854	combined: 0	p=0.8235510139931854
@@ -193,7 +193,7 @@ cargo run -r -F wyrand -- 64 1 8000000000 -b 3 -P
 Generator: wyrand
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
+Running a 1-dimensional parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
 u: 64 t: 1 cells: 18446744073709551616 expected collisions: 111.0223023323856
 Pass 1/8: gen...[13.200s] sort...[25.677s] count...[1.049s], 8000083095 points, 28 collisions, p=0.0005575160148976676; combined: 8000083095 points, 28 collisions, p=0.0005575160148976676
 Pass 2/8: gen...[13.214s] sort...[21.772s] count...[1.047s], 8000011384 points, 20 collisions, p=0.07162240780462378; combined: 16000094479 points, 48 collisions, p=0.0003042040178853015
@@ -226,7 +226,7 @@ cargo run -r -F lcg_64_64_0xa5b9ee81534fa94d -- 32 2 8000000000 -b 3 -p -P
 Generator: LCG64 (0xa5b9ee81534fa94d)
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel collision test (20 CPUs, jump-ahead) on the upper 32 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
+Running a 2-dimensional parallel collision test (20 CPUs, jump-ahead) on the upper 32 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
 u: 32 t: 2 cells: 18446744073709551616 expected collisions: 111.0223023323856
 Pass 1/8: gen...[20.506s] sort...[26.332s] count...[1.050s], 8000076053 points, 3 collisions, p=0.9994770836776423; combined: 8000076053 points, 3 collisions, p=0.9994770836776423
 Pass 2/8: gen...[20.129s] sort...[21.184s] count...[1.053s], 8000194725 points, 4 collisions, p=0.9980257653489827; combined: 16000270778 points, 7 collisions, p=1 − 2.9280185095831245e-6
@@ -262,7 +262,7 @@ cargo run -r -F mwc_128_64_0xffebb71d94fcdaf9 36 3 2000000000 -B -P -b 6
 Generator: MWC128 (0xffebb71d94fcdaf9)
 Transparent huge pages: always [madvise] never
 Seed: 0x0000000000000000
-Running a parallel birthday-spacings test (20 CPUs, jump-ahead) on the upper 36 bits of the full 64-bit output (128000000000 points, 128-bit cells, 2000000000 memory locations, 59.853 GiB RAM, tradeoff on 6 top bits over 64 value intervals x 64 spacing classes)
+Running a 3-dimensional parallel birthday-spacings test (20 CPUs, jump-ahead) on the upper 36 bits of the full 64-bit output (128000000000 points, 128-bit cells, 2000000000 memory locations, 59.853 GiB RAM, tradeoff on 6 top bits over 64 value intervals x 64 spacing classes)
 u: 36 t: 3 cells: 324518553658426726783156020576256 expected collisions: 1.6155871338926322
 Rep 1/1: 64 value intervals x 64 spacing classes
   Class 1/64, interval 1/64: gen...[90.838s] sort...[10.731s] filter...[1.067s], 2000034155 points
