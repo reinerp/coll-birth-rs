@@ -1012,8 +1012,16 @@ mod compact_tests {
             base += cap;
         }
         let total = compact_blocks::<u64>(&mut buf, caps, used);
-        assert_eq!(total, used.iter().sum::<usize>(), "total for {caps:?}/{used:?}");
-        assert_eq!(&buf[..total], &expected[..], "compacted for {caps:?}/{used:?}");
+        assert_eq!(
+            total,
+            used.iter().sum::<usize>(),
+            "total for {caps:?}/{used:?}"
+        );
+        assert_eq!(
+            &buf[..total],
+            &expected[..],
+            "compacted for {caps:?}/{used:?}"
+        );
     }
 
     #[test]

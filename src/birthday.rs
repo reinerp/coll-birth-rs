@@ -329,7 +329,10 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
                 "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}; combined: {total_coll} collisions, p={}",
                 j + 1,
                 num_passes,
-                format_p_value(p_value(total_coll as f64, classes_done * lambda_class), pretty_p),
+                format_p_value(
+                    p_value(total_coll as f64, classes_done * lambda_class),
+                    pretty_p
+                ),
             );
         } else {
             eprintln!(
@@ -637,7 +640,10 @@ pub fn run_birthday_parallel<T: Cell>(
                     "  Class {}/{} done: [{elapsed:.3}s], {class_len} spacings, {class_coll} collisions, p={class_p}; combined: {rep_coll} collisions, p={}",
                     j + 1,
                     num_passes,
-                    format_p_value(p_value(rep_coll as f64, classes_done * lambda_class), args.pretty_p),
+                    format_p_value(
+                        p_value(rep_coll as f64, classes_done * lambda_class),
+                        args.pretty_p
+                    ),
                 );
             } else {
                 eprintln!(

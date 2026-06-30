@@ -429,7 +429,15 @@ pub fn run_test_parallel<T: Cell>(
                 // Phase 1 — generate this stage into one contiguous buffer (decimation,
                 // no tradeoff): threads fill disjoint sub-regions, gaps compacted away.
                 let stage_len = gen_unit_contiguous::<T>(
-                    stage_buf, &stage_caps, &snapshots, &params, &schunk, 0, 0, true, full,
+                    stage_buf,
+                    &stage_caps,
+                    &snapshots,
+                    &params,
+                    &schunk,
+                    0,
+                    0,
+                    true,
+                    full,
                 );
                 eprint!("[{:.3}s] sort...", psw.lap());
 
