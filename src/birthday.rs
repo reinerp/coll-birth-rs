@@ -117,7 +117,7 @@ pub(crate) fn compute_spacings_with_predecessor<T: Cell>(v: &mut [T], predecesso
 /// element receives the circular wrap-around `cells - max + min`.
 ///
 /// The wrap-around lies in `[1..=cells]` and reaches `cells` exactly when `min
-/// == max`, which may not be representable (`cells` can be 2^N in N-bit
+/// == max`, which may not be representable (`cells` can be 2*ⁿ* in *n*-bit
 /// storage). It is therefore evaluated through the always-representable `cells - 1`,
 /// and in the degenerate case replaced by a nonzero stand-in: all other
 /// spacings are then zero, so the collision count is unaffected.
@@ -159,6 +159,12 @@ pub(crate) fn compute_spacings<T: Cell>(v: &mut [T], cells: &BigUint) {
 ///
 /// The point multiset is identical to a single sweep, so the total equals the
 /// plain [`run_birthday`] count.
+///
+/// This is the sequential, single-repetition runner: [`crate::common::run_test`]
+/// owns the repetition loop and header above it and hands it a ready `Prng` and
+/// buffer, with `DECIMATE`/`FULL`/`DIM` specializing the hot loop as const
+/// generics. The multi-core counterpart is [`run_birthday_parallel`], which runs
+/// these same two levels over a faithful orbit split and is bit-identical.
 ///
 /// Returns the spacing-collision count and the number of points actually kept
 /// (summed over the value intervals of one distance sweep; every sweep visits
@@ -344,20 +350,37 @@ pub fn run_birthday_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, co
     (total_coll, total_points)
 }
 
-/// Parallel birthday-spacings test with the two-level top-bit tradeoff.
+/// Runs a birthday-spacings test using the same two nested levels as
+/// [`run_birthday_tradeoff`] (each with 2*ᵇ* passes), split across `num_cpus`
+/// cores via the faithful orbit partition of
+/// [`crate::collision::run_test_parallel`]:
 ///
-/// Reuses the faithful orbit split of [`crate::collision::run_test_parallel`].
-/// The combined index is split into 2*ᵇ* contiguous value intervals by its top
-/// *b* bits, visited in order; per interval the per-thread blocks are gathered
-/// into one buffer and sorted. The sorted interval is kept read-only; its
-/// spacings (`interval[i] − interval[i−1]`, with the first element of the first
-/// non-empty interval taken against `prev_max`, the previous interval's
-/// maximum) are computed on the fly by the parallel filter and the matching
-/// ones compacted into the current spacing-class's buffer. Spacings are
-/// accumulated per spacing-class (their low *b* bits, which are balanced,
-/// unlike the top bits which cluster near zero) and counted. With `b == 0` this
-/// degenerates to a plain parallel birthday test (one interval, one class). The
-/// summed count is identical to the sequential [`run_birthday_tradeoff`].
+/// - **Inner (distance) level:** the combined index is split into 2*ᵇ* contiguous
+///   value intervals by its top *b* bits, visited in increasing order. Within an
+///   interval each thread fills a disjoint sub-region of one buffer from its own
+///   orbit segment; the blocks are compacted into a single contiguous interval,
+///   sorted, and kept read-only. Its spacings (`interval[i] − interval[i−1]`,
+///   the first non-empty interval's first element taken against `prev_max`, the
+///   previous interval's maximum) are computed on the fly, and the global
+///   minimum's wrap-around (`cells` − max + min) is applied once, so these are
+///   exactly the spacings of the global sorted sequence.
+///
+/// - **Outer (counting) level:** spacings are classified by their *low* *b* bits,
+///   not their top bits (spacings cluster near zero, so a top-bit split would
+///   dump almost everything into one class, whereas the low bits are balanced).
+///   The matching spacings are compacted into the current class's buffer, sorted,
+///   and counted; equal spacings share all bits hence the same class, so the
+///   per-class counts sum to the exact total. With `b == 0` this degenerates to a
+///   plain parallel birthday test (one interval, one class).
+///
+/// The result is bit-identical to the sequential [`run_birthday_tradeoff`] for
+/// every CPU count and repetition.
+///
+/// Unlike [`run_birthday_tradeoff`] (which is an inner, single-repetition runner driven
+/// by [`crate::common::run_test`]), this is the top-level parallel entry point:
+/// it owns the repetition loop, header, orbit partition, and λ accumulation, and
+/// resolves the decimation/output-width/dimension modes at run time rather than
+/// as the const generics the sequential runner is monomorphized over.
 ///
 /// Returns the total collision count and the summed per-repetition Poisson
 /// means, each conditioned on the points the repetition actually kept (see
@@ -503,7 +526,7 @@ pub fn run_birthday_parallel<T: Cell>(
                     num_passes
                 );
                 // Phase 1: faithful parallel generation of interval k into one
-                // contiguous buffer — threads fill disjoint sub-regions, then the gaps
+                // contiguous buffer. Threads fill disjoint sub-regions, then the gaps
                 // left by under-filled sub-regions are compacted away.
                 let unit: &mut [T] = bytemuck::try_cast_slice_mut(&mut interval_buf).unwrap();
                 let total = gen_unit_contiguous::<T>(
@@ -539,7 +562,7 @@ pub fn run_birthday_parallel<T: Cell>(
                 let start = if prev_max.is_none() { 1 } else { 0 };
                 let interval: &[T] = interval;
                 let span = total - start;
-                // Pass 1 — count matching spacings per chunk.
+                // Pass 1: count matching spacings per chunk.
                 let counts: Box<[usize]> = std::thread::scope(|scope| {
                     let handles: Vec<_> = (0..num_cpus)
                         .map(|c| {
@@ -610,7 +633,7 @@ pub fn run_birthday_parallel<T: Cell>(
             }
 
             // Wrap-around spacing of the global minimum: cells − global_max + global_min.
-            // It equals cells — possibly unrepresentable — iff gmin == gmax, i.e., all
+            // It equals cells (possibly unrepresentable) iff gmin == gmax, i.e., all
             // points coincide; every other spacing is then 0 ≠ wrap, so dropping it
             // leaves the collision count unchanged.
             if let (Some(gmin), Some(gmax)) = (global_min, global_max) {

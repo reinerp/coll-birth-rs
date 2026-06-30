@@ -30,7 +30,8 @@ use crate::util::Stopwatch;
 ///
 /// See [`run_collision_tradeoff`] and [`run_collision_decimate`] for
 /// alternatives that are slower, but more powerful, using the same
-/// amount of memory.
+/// amount of memory. [`run_test_parallel`] is the multi-core counterpart of all
+/// three.
 pub fn run_collision<T: Cell, const DIM: usize, const FULL: bool>(
     prng: &mut Prng,
     params: &GridParams,
@@ -63,6 +64,12 @@ pub fn run_collision<T: Cell, const DIM: usize, const FULL: bool>(
 ///
 /// A *p*-value is emitted after each pass, which can be used to estimate whether
 /// the test is succeeding partway through.
+///
+/// This is the sequential, single-repetition runner: [`crate::common::run_test`]
+/// owns the repetition loop and header above it and hands it a ready `Prng` and
+/// buffer, with its `DIM`/`DECIMATE` const generics specializing the hot loop.
+/// The multi-core counterpart is [`run_test_parallel`], which runs the same
+/// value-interval passes over a faithful orbit split and is bit-identical.
 ///
 /// Returns the collision count and the number of points actually kept across
 /// all passes (equal to `points` when not decimating).
@@ -180,13 +187,18 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
 /// to stronger results in detecting faulty generators. The idea of decimation
 /// to strengthen the collision test was proposed by [Melissa O'Neill].
 ///
-/// When `checkpoints` is true, the run is split into ⌊√(2*ᵈ*)⌋ equally spaced
+/// When `checkpoints` is true, the run is split into ⌊√2*ᵈ*⌋ equally spaced
 /// (in `next_u64`-call count) stages, with a cumulative *p*-value emitted after
-/// eac, matching the per-pass cadence of [`run_collision_tradeoff`] with
+/// each stage, matching the per-pass cadence of [`run_collision_tradeoff`] with
 /// *b* = *d*/2, so the two outputs are directly comparable. Each new chunk is
 /// sorted in a small auxiliary buffer and merged into the sorted prefix in
 /// `buf` via a three-pointer right-to-left merge, so the per-checkpoint cost
 /// is linear (not log-linear) in the accumulated size.
+///
+/// Like the other sequential runners it is one repetition driven by
+/// [`crate::common::run_test`] (with `DIM`/`FULL` as const generics); the
+/// faithful parallel decimation path (including `-c` checkpoints) runs through
+/// [`run_test_parallel`] instead, and is bit-identical.
 ///
 /// Returns the collision count and the number of points actually kept.
 ///
@@ -302,6 +314,13 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
 /// live memory is one pass' worth (~`points` / 2*ᵇ*, split `num_cpus` ways)
 /// regardless of *b*, matching the sequential tradeoff's space behaviour.
 ///
+/// Unlike the sequential inner runners ([`run_collision`],
+/// [`run_collision_tradeoff`], [`run_collision_decimate`]) driven by
+/// [`crate::common::run_test`], this is the top-level parallel entry point: it
+/// owns the repetition loop, header, orbit partition, and λ accumulation, and
+/// resolves the tradeoff/decimation/output-width modes at run time rather than as
+/// const generics.
+///
 /// Returns the total collision count and the summed per-repetition Poisson
 /// means, each conditioned on the points the repetition actually kept (see
 /// [`crate::common::run_test`]).
@@ -339,7 +358,7 @@ pub fn run_test_parallel<T: Cell>(
 
     // Fixed-sample: each pass scans scan_total = points · 2ᵗᵈ samples, split into
     // num_cpus contiguous sample-ranges reached by jump-ahead or a chained pre-scan
-    // (see OrbitPartition). Every mode is faithful — there is no decorrelated fallback.
+    // (see OrbitPartition). Every mode is faithful--there is no decorrelated fallback.
     // Per-chunk buffer headroom spans the t·(d+b) residue bits.
     let scan_total = scan_samples(points, args.t, d);
     let mut partition = OrbitPartition::new(seed, num_cpus, scan_total, args.t);

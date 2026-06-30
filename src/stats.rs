@@ -8,7 +8,46 @@
 
 use std::borrow::Cow;
 
-use crate::cdf;
+use cdflib::Poisson;
+use cdflib::traits::DiscreteCdf;
+
+/// Lower and upper Poisson tail probabilities at a given count.
+#[derive(Clone, Copy, Debug)]
+pub struct PoissonTails {
+    /// `Pr[X <= coll]`
+    pub p_left: f64,
+    /// `Pr[X >= coll]`
+    pub p_right: f64,
+}
+
+/// Computes the Poisson lower and upper tail probabilities at `coll` given mean `lambda`.
+///
+/// Returns `None` when `lambda` is not a valid Poisson rate or `coll` is not a
+/// non-negative integer representable as `u64`.
+///
+/// # Implementation notes
+///
+/// [`DiscreteCdf::ccdf`] returns `Pr[X > s]`; computing `Pr[X >= coll]` therefore
+/// evaluates the complementary CDF at `coll - 1`. The `coll == 0` case is
+/// special-cased to avoid underflowing the `u64` argument.
+pub fn poisson_tails(coll: f64, lambda: f64) -> Option<PoissonTails> {
+    if !coll.is_finite() || coll < 0.0 || coll.fract() != 0.0 {
+        return None;
+    }
+    let coll_u = coll as u64;
+
+    // `Poisson::new` panics on an invalid rate (negative or non-finite); the
+    // fallible constructor lets us honour the documented `None` contract instead.
+    let poi = Poisson::try_new(lambda).ok()?;
+    let p_left = poi.cdf(coll_u);
+    let p_right = if coll_u == 0 {
+        1.0
+    } else {
+        poi.ccdf(coll_u - 1)
+    };
+
+    Some(PoissonTails { p_left, p_right })
+}
 
 /// Expected number of collisions when throwing `points` balls into `cells` bins.
 ///
@@ -77,7 +116,7 @@ pub enum PValue {
 /// (cf. Chapter 3 of the long TestU01 guide). Returns [`PValue::Direct`]`(f64::NAN)`
 /// if CDFLIB reports an error.
 pub fn p_value(coll: f64, lambda: f64) -> PValue {
-    let Some(tails) = cdf::poisson_tails(coll, lambda) else {
+    let Some(tails) = poisson_tails(coll, lambda) else {
         return PValue::Direct(f64::NAN);
     };
     if tails.p_right < tails.p_left {
@@ -134,8 +173,8 @@ mod tests {
     use super::*;
 
     // A count deep in the left tail (here X = 0 against mean 700) has
-    // p_left = e^-700 ≈ 9.9e-305 — tiny but representable. Its two-sided p-value
-    // is 1 - p_left, which must render in pretty mode as `1-<that tiny eps>`, not
+    // p_left = e^-700 ≈ 9.9e-305, tiny but representable. Its two-sided p-value
+    // is 1 - p_left, which must render in pretty mode as `1 - <that tiny eps>`, not
     // collapse to "1": computing `1 - p_left` in an f64 rounds to exactly 1.0 once
     // p_left < machine epsilon, destroying the tail. This pins the precision.
     #[test]

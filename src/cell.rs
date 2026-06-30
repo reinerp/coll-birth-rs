@@ -140,8 +140,8 @@ pub fn cell_index<T: Cell, const DIM: usize, const FULL: bool>(
 /// One decimating attempt: draws exactly *t* PRNG outputs (a full candidate
 /// tuple) and returns `Some(x)`, with `x` the assembled dense index (each element
 /// compacted to *u* − *d* bits), iff every element's low *d* bits are zero; else
-/// `None`. The full tuple's *t* draws are always consumed — accepted or rejected
-/// — so the generator advances by exactly *t* and sample *j* sits at orbit offset
+/// `None`. The full tuple's *t* draws are always consumed, accepted or rejected,
+/// so the generator advances by exactly *t* and sample *j* sits at orbit offset
 /// *j* · *t*. This is the fixed-sample counterpart to the loop-until-accept path:
 /// the caller scans a fixed number of samples and keeps the `Some` values.
 #[inline]
@@ -187,7 +187,7 @@ mod tests {
 
     // decimate_once consumes exactly t draws per call (accepted or rejected),
     // returns Some only when every element's low d bits are zero, and the dense
-    // index is in [0, (2^(u-d))^t). Both arms must be exercised — which needs a
+    // index is in [0, (2^(u-d))^t). Both arms must be exercise, which needs a
     // non-degenerate generator (the incr counter maps everything to ~cell 0, so it
     // never rejects), hence the gate.
     #[cfg(not(feature = "incr"))]

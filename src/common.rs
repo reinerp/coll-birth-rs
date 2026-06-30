@@ -89,7 +89,7 @@ pub(crate) fn bin_overflow(what: &str) -> ! {
     eprintln!(
         "\n{what} overflowed its buffer: a bin received more elements than its \
          balls-into-bins headroom, which happens with probability below 10⁻¹⁰⁰⁰ \
-         for a uniform generator — overwhelming evidence that the generator under \
+         for a uniform generator: this is overwhelming evidence that the generator under \
          test is grossly non-uniform. Rerun in plain mode (no -b/-d) for an exact \
          p-value."
     );
@@ -98,7 +98,7 @@ pub(crate) fn bin_overflow(what: &str) -> ! {
 
 /// Samples scanned per pass: `points` · 2*ᵗᵈ*. Uses an overflow check:
 /// [`checked_shl`] alone only guards the shift amount, not the resulting value, so
-/// a too-large t·d would silently wrap. A configuration whose sample budget
+/// a too-large *t* · *d* would silently wrap. A configuration whose sample budget
 /// does not fit in a usize (points · 2*ᵗᵈ* ≥ 2⁶⁴; points already carries the
 /// 2*ᵇ* tradeoff factor) surfaces here as a clean overflow error.
 ///
@@ -107,7 +107,7 @@ pub(crate) fn scan_samples(points: usize, t: usize, d: usize) -> usize {
     1usize
         .checked_shl((t * d) as u32)
         .and_then(|factor| points.checked_mul(factor))
-        .expect("points · 2^(t·d) overflows usize")
+        .expect("points · 2ᵗᵈ overflows usize")
 }
 
 /// "full 64-bit output" or "lowest N bits": which bits of each draw the test reads.
@@ -494,7 +494,7 @@ fn compact_blocks<T: Cell>(buf: &mut [T], caps: &[usize], used: &[usize]) -> usi
 /// `snapshots` (via [`gen_pass_dispatch`]); the gaps left by under-filled
 /// sub-regions are then closed in place by [`compact_blocks`]. Returns `total_used`;
 /// on return `buf[..total_used]` holds the kept points (unsorted) so that a single
-/// [`Cell::sort_mt`] + linear [`count_adjacent_equals`] serves both tests — replacing
+/// [`Cell::sort_mt`] + linear [`count_adjacent_equals`] serves both tests, replacing
 /// the per-thread buffers + k-way merge the parallel collision runner used before.
 ///
 /// `buf.len()` must be at least `Σ caps`; each `caps[i]` is the headroom-sized
@@ -628,7 +628,7 @@ fn gen_pass_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL
 /// [`expected_collisions`] for the collision test, points³/(4 · cells) for
 /// birthday spacings. Used both a priori (nominal point count, for the header
 /// line and the default sizing) and per repetition, conditioned on the points
-/// actually kept — identical to the a-priori value except under decimation,
+/// actually kept, identical to the a-priori value except under decimation,
 /// where the kept count is random and conditioning avoids overdispersing the
 /// null distribution.
 pub fn test_lambda(points: usize, cells: f64, birthday_spacings: bool) -> f64 {

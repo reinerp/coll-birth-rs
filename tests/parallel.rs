@@ -214,9 +214,9 @@ fn parallel_checkpoints_p1_match_sequential_runner() {
     );
 }
 
-// Parallel birthday-spacings (plain, b = 0) must equal the sequential run for any
-// CPU count: the gathered interval is the same point multiset, so the spacings —
-// and their collisions — match.
+// Parallel birthday-spacings (plain, b = 0) must equal the sequential run for
+// any CPU count: the gathered interval is the same point multiset, so the
+// spacings and their collisions match.
 #[test]
 fn faithful_birthday_plain_matches_sequential() {
     let seed = 0x0B17_4DA9_0000_0001;
