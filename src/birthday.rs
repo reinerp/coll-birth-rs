@@ -419,7 +419,13 @@ pub fn run_birthday_parallel<T: Cell>(
     // prefix sums are the sub-region starts gen_unit_contiguous writes and compacts.
     let caps: Box<[usize]> = (0..num_cpus).map(block_cap).collect();
     let interval_cap: usize = caps.iter().sum();
-    let class_cap = buffer_size(points, b).max(1);
+    // The spacing-class buffer accumulates one class's spacings across every value
+    // interval; under decimation the kept count (hence spacing count) is random with
+    // mean `points`, so the buffer needs the full t·d + b balls-into-bins headroom —
+    // `buffer_size(points, b)` gives none when b == 0 (it returns exactly `points`),
+    // which overflows once the kept count exceeds its mean. This matches the
+    // sequential `run_test` sizing (`buffer_size(scan_len, partition_bits)`).
+    let class_cap = buffer_size(scan_total, partition_bits).max(1);
 
     let params = GridParams {
         u: args.u,

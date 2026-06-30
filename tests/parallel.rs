@@ -231,6 +231,35 @@ fn faithful_birthday_plain_matches_sequential() {
     assert_eq!(seq, par3, "P=3 parallel birthday must equal sequential");
 }
 
+// Regression: parallel birthday-spacings with decimation and no tradeoff (b = 0).
+// Under decimation the kept count (= number of spacings, all in the single class
+// when b = 0) is random with mean `points`; with this seed it lands at 40196 >
+// 40000, which overflowed the old zero-headroom `buffer_size(points, 0)` class
+// buffer. The class buffer must carry the full t·d + b headroom, so the run
+// completes and still matches the sequential one.
+#[test]
+fn faithful_birthday_decimation_matches_sequential() {
+    let seed = 3;
+    let mut args = make_args(30, 2, 40_000, None, seed);
+    args.birthday_spacings = true;
+    args.decimate = Some(2);
+    let cells = BigUint::from(2u32)
+        .pow((args.u - 2) as u32)
+        .pow(args.t as u32); // effective cells 2^((u−d)·t)
+    let (lambda, points) = compute_lambda_and_points(&args, &cells);
+    let seq = run_test::<u64>(&args, points, &cells, lambda);
+    let par1 = run_birthday_parallel::<u64>(&args, points, &cells, lambda, 1);
+    let par3 = run_birthday_parallel::<u64>(&args, points, &cells, lambda, 3);
+    assert_eq!(
+        seq, par1,
+        "P=1 parallel birthday decimation must equal sequential"
+    );
+    assert_eq!(
+        seq, par3,
+        "P=3 parallel birthday decimation must equal sequential"
+    );
+}
+
 // Same, with the two-level top-bit tradeoff (b > 0).
 #[test]
 fn faithful_birthday_tradeoff_matches_sequential() {
