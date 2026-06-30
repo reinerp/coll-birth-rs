@@ -274,9 +274,8 @@ Test completed in 392079.89 seconds
 65	p=8.595346190145383e-79
 ```
 
-The multiplier has excellent scores, but our tests can detect its bias on a
-standard workstation. In this case, running the test in a naïve way would
-require terabytes of RAM.
+Our test can detect the bias on a standard workstation. In this case, running
+the test in a naïve way would require at least a terabyte of RAM.
 
 # Acknowledgments
 
