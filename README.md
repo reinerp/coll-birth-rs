@@ -13,9 +13,12 @@ _d_ < _u_ decimation bits are specified, only those tuples in which all elements
 have the lower _d_ bits equal to zero are kept: the cell space has thus size
 (2*ᵘ* ⁻ *ᵈ*)_ᵗ_.
 
+The implementation uses scans and radix sorting to process the
+output of the PRNG, using multiple cores if available.
+
 # Space-time tradeoffs
 
-The main novelty of this crate is the implementation of _space-time tradeoffs_
+The main novelty of this crate is the implementation of [_space-time tradeoffs_]
 for the computation of the tests, borrowing standard techniques in database
 and stream counting.
 
@@ -38,10 +41,9 @@ _m_, the (approximate) number of memory locations to use. Then,
 - the number of samples from the orbit of the generator is _m_ · 2*ᵇ* · 2*ᵗᵈ*
   (each _t_-tuple costs _t_ calls);
 
-- for the collision test, the number of calls to the generator is _t_ · _m_ ·
-  (2*ᵇ*)² · 2*ᵗᵈ*;
-
-- the birthday-spacings test adds a further factor of 2*ᵇ* for its second level.
+- the number of calls to the generator for the collision test is _t_ · _m_ ·
+  (2*ᵇ*)² · 2*ᵗᵈ*; the birthday-spacings test adds a further factor of 2*ᵇ* for
+  its second level.
 
 The actual allocation will be larger than _m_ by a few percents in tradeoff mode
 because the number of points with given upper bits will slightly vary.
@@ -75,17 +77,22 @@ by 2*ᵈ* with respect to an undecimated test.
 The idea can be extended to any subset of bits being equal to any set of bit
 pattern, or more general mappings.
 
+We extend decimation to the birthday-spacings test, by keeping only tuples in
+which all elements have the lower _d_ bits equal to zero.
+
 # Repetitions
 
 The tests can be repeated multiple times: the statistics can be added together,
-from which a single _p_-value is computed.
+and then a single _p_-value is computed.
 
 # Comparison of techniques
 
 Given a budget of _m_ memory locations, a space-time tradeoff on _b_ bits,
 decimation with 2*b* bits, or performing 2*²ᵇ* repetitions will use the same
 number of calls to the generator, and will end up comparing against the same
-mean.
+mean. The amount of sorted data is the number of memory locations for the
+decimated test; the space-time tradeoff adds a factor of 2*ᵇ*, and repetitions
+add a factor of 2*²ᵇ*.
 
 If there are no collisions, the _p_-values will be the same. However, if there
 are too many collisions, different techniques will yield different statistics
@@ -93,11 +100,15 @@ and different _p_-values.
 
 Empirically, it seems that the most powerful technique is space-time tradeoffs
 (i.e., a standard collision test), followed by decimation, and finally
-repetitions. However, this might depend on the generator, because space-time
-tradeoffs use the whole orbit under examination, but decimation looks farther
-into the orbit. Moreover, space-time tradeoffs are a technique to implement the
-collision and the birthday-spacings tests, whereas decimation is a variant on
-the test.
+repetitions, in the sense that with the same amount of space and number of calls
+to the generator one gets better _p_-values in this order. However, this might
+depend on the generator, because space-time tradeoffs use the whole orbit under
+examination, but decimation looks farther into the orbit. Moreover, space-time
+tradeoffs are a technique to implement the collision and the birthday-spacings
+tests, whereas decimation is a variant on the tests.
+
+What is pretty clear is that repeating the tests is the most expensive and less
+effective technique.
 
 # Usage
 
@@ -105,28 +116,66 @@ The generator to test is selected at compilation time using Cargo features.
 For example,
 
 ```text
-cargo run -r -F splitmix -- 64 1 4000000000 -b 4 -p -P
+cargo run -r -F splitmix -- 64 1 8000000000 -b 2 -p -P
 Generator: SplitMix
-Seed: 0x18bb6e430a1df210
-Running a parallel collision test (10 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output using 48000000000 points (64-bit cells, 22.439 GiB RAM, tradeoff on 4 top bits over 16 passes)
-u: 64 t: 1 cells: 18446744073709551616 expected collisions: 62.45004507969723
-Pass 1/16: gen...[10.207s] sort...[4.607s] count...[9.962s], 3000005913 points, 0 collisions, p=0.9798216130914219; combined: 3000005913 points, 0 collisions, p=0.9798216130914219
-Pass 2/16: gen...[9.916s] sort...[3.741s] count...[10.261s], 2999960789 points, 0 collisions, p=0.979819243690045; combined: 5999966702 points, 0 collisions, p=0.99959278489142
-[...]
-Pass 16/16: gen...[12.642s] sort...[4.773s] count...[12.193s], 4000072070 points, 0 collisions, p=0.9990309011505323; combined: 64000000000 points, 0 collisions, p=1 − 6.0761254074375494e-49
-0	p=1 − 6.0761254074375494e-49	combined: 0	p=1 − 6.0761254074375494e-49
-Test completed in 471.27 seconds
-0	p=1 − 6.0761254074375494e-49
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (32000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 2 top bits over 4 passes)
+u: 64 t: 1 cells: 18446744073709551616 expected collisions: 27.755575598712134
+Pass 1/4: gen...[12.575s] sort...[25.045s] count...[1.047s], 7999983191 points, 0 collisions, p=0.9990306305409877; combined: 7999983191 points, 0 collisions, p=0.9990306305409877
+Pass 2/4: gen...[12.543s] sort...[21.221s] count...[1.048s], 7999927485 points, 0 collisions, p=0.9990305368624458; combined: 15999910676 points, 0 collisions, p=1 − 9.39767956526281e-7
+Pass 3/4: gen...[12.678s] sort...[21.999s] count...[1.048s], 8000029665 points, 0 collisions, p=0.999030708688019; combined: 23999940341 points, 0 collisions, p=1 − 9.109089151127042e-10
+Pass 4/4: gen...[12.585s] sort...[21.952s] count...[1.050s], 8000059659 points, 0 collisions, p=0.9990307591204716; combined: 32000000000 points, 0 collisions, p=1 − 8.828901577425957e-13
+0	p=1 − 8.828901577425957e-13	combined: 0	p=1 − 8.828901577425957e-13
+Test completed in 146.49 seconds
+0	p=1 − 8.828901577425957e-13
 ```
 
-will test SplitMix using about 22.4 GiB of RAM, using four tradeoff bits and
-parallel generations. Note that each tradeoff pass is interpretable as a
+will test SplitMix using about 60 GiB of RAM, two tradeoff bits and parallel
+generation (we could have obtained the same result using a fourth of the RAM by
+choosing four tradeoff bits). Note that each tradeoff pass is interpretable as a
 decimation, and each prefix of tradeoff passes as a multi-target decimation, so
 corresponding _p_-values are output, helping to see where the computation is
-going. Since we were expecting _p_-values close to one, we used the pretty-printing option
-`-p` to switch to a more accurate display.
+going. Since we were expecting _p_-values close to one, we used the
+pretty-printing option `-p` to switch to a more accurate display when
+the result is close to one.
 
-# Adding
+As we mentioned, since there are no collisions using decimation with 2*b* bits would be equivalent:
+
+```text
+cargo run -r -F splitmix -- 64 1 8000000000 -d 4 -p -P
+Generator: SplitMix
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, decimating 4 bits per dimension (~2^4 candidate samples per kept sample))
+u: 64 t: 1 cells: 1152921504606846976 expected collisions: 27.755575547961804 (effective cells after decimation: 2^60)
+Pass 1/1: gen...[18.642s] sort...[26.335s] count...[1.048s], 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13; combined: 7999985821 points, 0 collisions, p=1 − 8.829770712901635e-13
+0	p=1 − 8.829770712901635e-13	combined: 0	p=1 − 8.829770712901635e-13
+Test completed in 47.73 seconds
+0	p=1 − 8.829770712901635e-13
+```
+
+Also repeating the test 16 times would be equivalent (as 1.7347 · 16 = 27.7552):
+
+```text
+cargo run -r -F splitmix -- 64 1 8000000000 -r 16 -p -P
+Generator: SplitMix
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (8000000000 points, 64-bit cells, 8000000000 memory locations, 59.605 GiB RAM)
+u: 64 t: 1 cells: 18446744073709551616 expected collisions: 1.7347234755091947
+Pass 1/1: gen...[1.605s] sort...[24.610s] count...[1.048s], 8000000000 points, 0 collisions, p=0.8235510139931854; combined: 8000000000 points, 0 collisions, p=0.8235510139931854
+0	p=0.8235510139931854	combined: 0	p=0.8235510139931854
+Pass 1/1: gen...[1.609s] sort...[25.191s] count...[1.050s], 8000000000 points, 0 collisions, p=0.8235510139931854; combined: 8000000000 points, 0 collisions, p=0.8235510139931854
+0	p=0.8235510139931854	combined: 0	p=0.968865755337167
+[...]
+Pass 1/1: gen...[1.609s] sort...[26.398s] count...[1.049s], 8000000000 points, 0 collisions, p=0.8235510139931854; combined: 8000000000 points, 0 collisions, p=0.8235510139931854
+0	p=0.8235510139931854	combined: 0	p=1 − 8.828901494125378e-13
+Test completed in 465.96 seconds
+0	p=1 − 8.828901494125378e-13
+```
+
+# Adding your own generator
 
 To add a new generator, add a feature in `Cargo.toml` and a corresponding
 implementation in the [`prng`] module. If skipping is possible, you can
@@ -139,18 +188,19 @@ applies a hash using ideas from [Wyhash]. While the generator passes all common 
 tests, the hash is not sufficient to hide the bias from a large-scale collision test:
 
 ```text
-cargo run --release --features wyrand -- 64 1 5000000000 -b 4 -P
+cargo run -r -F wyrand -- 64 1 8000000000 -b 3 -P
 Generator: wyrand
-Seed: 0x18bb7fa97c0acbb0
-Running a parallel collision test (10 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output using 80000000000 points (64-bit cells, 37.366 GiB RAM, tradeoff on 4 top bits over 16 passes)
-u: 64 t: 1 cells: 18446744073709551616 expected collisions: 173.47234734474017
-Pass 1/16: gen...[13.229s] sort...[10.799s] count...[14.386s], 4999944051 points, 20 collisions, p=0.008035262486159036; combined: 4999944051 points, 20 collisions, p=0.008035262486159036
-Pass 2/16: gen...[10.049s] sort...[5.861s] count...[16.074s], 4999999826 points, 18 collisions, p=0.0286001462015577; combined: 9999943877 points, 38 collisions, p=0.0009458204930775911
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 64 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
+u: 64 t: 1 cells: 18446744073709551616 expected collisions: 111.0223023323856
+Pass 1/8: gen...[13.200s] sort...[25.677s] count...[1.049s], 8000083095 points, 28 collisions, p=0.0005575160148976676; combined: 8000083095 points, 28 collisions, p=0.0005575160148976676
+Pass 2/8: gen...[13.214s] sort...[21.772s] count...[1.047s], 8000011384 points, 20 collisions, p=0.07162240780462378; combined: 16000094479 points, 48 collisions, p=0.0003042040178853015
 [...]
-Pass 16/16: gen...[10.290s] sort...[5.745s] count...[15.337s], 4999930072 points, 20 collisions, p=0.008034809669851041; combined: 80000000000 points, 309 collisions, p=1.2406616831619787e-20
-309	p=1.2406616831619787e-20	combined: 309	p=1.2406616831619787e-20
-Test completed in 511.66 seconds
-309	p=1.2406616831619787e-20
+Pass 8/8: gen...[13.298s] sort...[22.828s] count...[1.049s], 8000119446 points, 22 collisions, p=0.026591939215130665; combined: 64000000000 points, 222 collisions, p=1.2959913978087028e-20
+222	p=1.2959913978087028e-20	combined: 222	p=1.2959913978087028e-20
+Test completed in 298.37 seconds
+222	p=1.2959913978087028e-20
 ```
 
 # Example: an affine congruential generator that is _too good_
@@ -171,18 +221,19 @@ However, if you can run large-scale collision test, a multiplier that is _too
 good_ will fail, too, as the hyperplanes are still there:
 
 ```text
-cargo run -r -F lcg_64_64_0xa5b9ee81534fa94d -- 32 2 4000000000 -b 4 -p -P
+cargo run -r -F lcg_64_64_0xa5b9ee81534fa94d -- 32 2 8000000000 -b 3 -p -P
 Generator: LCG64 (0xa5b9ee81534fa94d)
-Seed: 0x18bb783e2bfe78f0
-Running a parallel collision test (10 CPUs, jump-ahead) on the upper 32 bits of the full 64-bit output using 64000000000 points (64-bit cells, 29.904 GiB RAM, tradeoff on 4 top bits over 16 passes)
+Transparent huge pages: always [madvise] never
+Seed: 0x0000000000000000
+Running a parallel collision test (20 CPUs, jump-ahead) on the upper 32 bits of the full 64-bit output (64000000000 points, 64-bit cells, 8000000000 memory locations, 59.807 GiB RAM, tradeoff on 3 top bits over 8 passes)
 u: 32 t: 2 cells: 18446744073709551616 expected collisions: 111.0223023323856
-Pass 1/16: gen...[18.022s] sort...[5.342s] count...[11.741s], 3999990502 points, 1 collisions, p=0.992304281430322; combined: 3999990502 points, 1 collisions, p=0.992304281430322
-Pass 2/16: gen...[18.263s] sort...[4.610s] count...[12.012s], 4000000906 points, 1 collisions, p=0.9923045242213231; combined: 7999991408 points, 2 collisions, p=0.9998955354592226
+Pass 1/8: gen...[20.506s] sort...[26.332s] count...[1.050s], 8000076053 points, 3 collisions, p=0.9994770836776423; combined: 8000076053 points, 3 collisions, p=0.9994770836776423
+Pass 2/8: gen...[20.129s] sort...[21.184s] count...[1.053s], 8000194725 points, 4 collisions, p=0.9980257653489827; combined: 16000270778 points, 7 collisions, p=1 − 2.9280185095831245e-6
 [...]
-Pass 16/16: gen...[17.052s] sort...[4.359s] count...[11.932s], 4000103062 points, 1 collisions, p=0.9923069078008872; combined: 64000000000 points, 19 collisions, p=1 − 4.384243826101139e-27
-19	p=1 − 4.384243826101139e-27	combined: 19	p=1 − 4.384243826101139e-27
-Test completed in 544.79 seconds
-19	p=1 − 4.384243826101139e-27
+Pass 8/8: gen...[19.392s] sort...[22.802s] count...[1.050s], 8000186794 points, 2 collisions, p=0.9998955967799726; combined: 64000000000 points, 16 collisions, p=1 − 1.804698905648335e-29
+16	p=1 − 1.804698905648335e-29	combined: 16	p=1 − 1.804698905648335e-29
+Test completed in 353.10 seconds
+16	p=1 − 1.804698905648335e-29
 ```
 
 The multiplier, for 64-bit ACGs with 64 bits of state, has been found during the
@@ -196,16 +247,16 @@ tradeoffs the test would require half a terabyte of RAM.
 
 Marsaglia's multiply-with-carry generators are very fast generator with
 arbitrarily large periods. While they pass most typical statistical tests (in
-fact, with sufficient state, all tests), it is known that their output is
+fact, with sufficient state, all tests), it is known that [their output is
 tightly coupled with that of a linear congruential generator with large prime
-modulus (an actual _linear_ congruential generator, not an _affine_ one,
+modulus] (an actual _linear_ congruential generator, not an _affine_ one,
 sometimes called a _multiplicative_ generator because of the confusion between
 linear and affine generators discussed above). Spectral analysis shows that such
 generators have inherently bad figures of merit *f*₃, but obtaining concrete
 failures in statistical test is not easy due to the large state space. However,
 we can find bias using birthday spacings in a 64-bit MWC with 128 bits of state:
 
-```bash
+```text
 cargo run -r -F mwc_128_64_0xffebb71d94fcdaf9 36 3 2000000000 -B -P -b 6
 Generator: MWC128 (0xffebb71d94fcdaf9)
 Transparent huge pages: always [madvise] never
@@ -230,12 +281,15 @@ require terabytes of RAM.
 # Acknowledgments
 
 I would like to thank the GitHub user `alvoskov` for a [very interesting
-discussion] that stimulated me to publish this create.
+discussion] that stimulated me to investigate space-time tradeoffs and publish
+this crate.
 
 [`cdflib`]: https://crates.io/crates/cdflib
 [`prng`]: https://docs.rs/coll-birth/latest/coll_birth/prng/index.html
-[I conducted with Guy Steele]: https://doi.org/10.1002/spe.3030
 [WyRand]: https://github.com/wangyi-fudan/wyhash
 [WyHash]: https://github.com/wangyi-fudan/wyhash
 [very interesting discussion]: https://github.com/alvoskov/SmokeRand/issues/24
 [propose the use of decimation]: https://www.pcg-random.org/posts/birthday-test.html
+[I conducted with Guy Steele to improve spectral coefficients]: https://doi.org/10.1002/spe.3030
+[their output is tightly coupled with that of a linear congruential generator with large prime modulus]: https://www.jstor.org/stable/2153884
+[_space-time tradeoffs_]: https://doi.org/10.1137/0220017
