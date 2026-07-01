@@ -35,7 +35,7 @@ fn make_args(u: usize, t: usize, m: usize, tradeoff: Option<usize>, seed: u64) -
         reps: 1,
         seed,
         pretty_p: false,
-        parallel: Some(0),
+        parallel: true,
         pass: None,
     }
 }

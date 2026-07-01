@@ -508,7 +508,7 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
     caps: &[usize],
     snapshots: &[Prng],
     params: &GridParams,
-    chunk: impl Fn(usize) -> usize,
+    chunk: impl Fn(usize) -> usize + Sync,
     pass: u64,
     tradeoff_b: usize,
     decimating: bool,
@@ -517,24 +517,37 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
     let num_cpus = caps.len();
     debug_assert_eq!(snapshots.len(), num_cpus);
 
-    // Phase 1: each thread generates into its own disjoint sub-region.
-    let used: Box<[usize]> = std::thread::scope(|scope| {
+    // Phase 1: split buf into the caps-sized disjoint sub-regions, then let the
+    // Rayon global pool fill each one from its segment's orbit snapshot. One task
+    // per sub-region, so with the standard sizing (num_cpus == pool threads) each
+    // Rayon worker owns exactly one segment.
+    let regions: Vec<&mut [T]> = {
+        let mut regions = Vec::with_capacity(num_cpus);
         let mut rest = &mut buf[..];
-        let mut handles = Vec::with_capacity(num_cpus);
-        for (i, &cap) in caps.iter().enumerate() {
+        for &cap in caps {
             let (region, tail) = rest.split_at_mut(cap);
+            regions.push(region);
             rest = tail;
-            let snap = snapshots[i];
-            let stream_len = chunk(i);
-            handles.push(scope.spawn(move || {
-                gen_pass_dispatch::<T>(
-                    snap, params, region, stream_len, pass, tradeoff_b, decimating, full,
-                )
-                .0
-            }));
         }
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
+        regions
+    };
+    let used: Vec<usize> = regions
+        .into_par_iter()
+        .enumerate()
+        .map(|(i, region)| {
+            gen_pass_dispatch::<T>(
+                snapshots[i],
+                params,
+                region,
+                chunk(i),
+                pass,
+                tradeoff_b,
+                decimating,
+                full,
+            )
+            .0
+        })
+        .collect();
 
     // Phase 2: close the gaps so the kept points are contiguous.
     compact_blocks(buf, caps, &used)
@@ -654,7 +667,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
     // bits of the combined index (the partition has 2ᵇ contiguous value intervals).
     // Decimation and the other modes use m as-is. Use a checked shift so an
     // out-of-range product is reported.
-    let pass_factor = match args.tradeoff {
+    let pass_factor = match args.tradeoff_bits {
         Some(b) => 1usize.checked_shl(b as u32).expect("2ᵇ overflows usize"),
         None => 1,
     };
@@ -688,7 +701,7 @@ pub fn compute_lambda_and_points(args: &Args, cells: &BigUint) -> (f64, usize) {
             Args::die(&format!(
                 "more points ({}) than {}cells ({})",
                 points,
-                if args.decimate.is_some() {
+                if args.decimation_bits.is_some() {
                     "effective "
                 } else {
                     ""
@@ -728,7 +741,7 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
 
     let mut prng = Prng::new(seed);
 
-    let d = args.decimate.unwrap_or(0);
+    let d = args.decimation_bits.unwrap_or(0);
     let tradeoff_b = args.tradeoff_bits(); // tradeoff bits b (0 when absent)
     // Fixed-sample model: a pass scans scan_len = points · 2ᵗᵈ samples and
     // keeps the accepted (decimation) and key-matching (tradeoff) subset. Buffer

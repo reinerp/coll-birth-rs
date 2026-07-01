@@ -336,7 +336,7 @@ pub fn run_test_parallel<T: Cell>(
     let seed = args.seed;
     eprintln!("Seed: {:#018x}", seed);
 
-    let d = args.decimate.unwrap_or(0);
+    let d = args.decimation_bits.unwrap_or(0);
     let tradeoff_b = args.tradeoff_bits();
     let num_passes: u64 = 1u64 << tradeoff_b; // tradeoff passes (1 when none)
     // Buffer headroom spans the t·d + b selectivity bits (decimation + tradeoff).

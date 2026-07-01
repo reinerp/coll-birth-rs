@@ -7,8 +7,6 @@
 //! Utilities.
 
 use std::fmt::Display;
-use std::num::NonZeroUsize;
-use std::thread::available_parallelism;
 use std::time::Instant;
 
 /// Renders an integer as a Unicode superscript string, so exponents such as 2⁶⁴
@@ -37,11 +35,13 @@ pub fn superscript(n: impl Display) -> String {
         .collect()
 }
 
-/// Number of usable threads, defaulting to 1 if [`available_parallelism`] fails.
+/// Number of threads in the Rayon global thread pool.
+///
+/// This is the single thread-count source for every parallel phase—generation
+/// fan-out, sorting, and counting—so all of them honour `RAYON_NUM_THREADS`
+/// (which itself defaults to the number of available cores).
 pub fn parallelism() -> usize {
-    available_parallelism()
-        .unwrap_or(NonZeroUsize::new(1).unwrap())
-        .into()
+    rayon::current_num_threads()
 }
 
 /// Records elapsed time between successive [`Stopwatch::lap`] calls.

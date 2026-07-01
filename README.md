@@ -34,20 +34,26 @@ since spacings cluster near zero); thus, the birthday-spacings test runs
 (2*ᵇ*)² passes.
 
 For simplicity of interaction with the tool, the main parameter to the tests is
-_m_, the (approximate) number of memory locations, which, depending on _t_ ·
-(_u_ − _d_), will be `u32`, `u64`, or `u128`. Then,
+_m_, the number of memory locations, which, depending on _t_ · (_u_ − _d_), will
+be `u32`, `u64`, or `u128`; the number is approximate because tradeoff and
+decimation add a little headroom, detailed at the end of this list.
 
-- the number of points is ≈ _m_ · 2*ᵇ*;
+The counts below, derived from _m_, are exact, except that decimation (which
+makes the number of _kept_ tuples random) turns the point count into a mean:
 
-- the number of samples from the orbit of the generator is ≈ _m_ · 2*ᵇ* · 2*ᵗᵈ*
-  (each _t_-tuple costs _t_ calls);
+- the number of points is _m_ · 2*ᵇ*;
 
-- the number of calls to the generator for the collision test is ≈ _t_ · _m_ ·
-  (2*ᵇ*)² · 2*ᵗᵈ*; the birthday-spacings test adds a further factor of 2*ᵇ* for
-  its second level.
+- the number of samples scanned from the orbit of the generator is _m_ ·
+  2*ᵇ* · 2*ᵗᵈ* (each _t_-tuple costs _t_ calls, all of which are drawn whether or
+  not the tuple is kept, so this stays exact under decimation);
 
-The actual allocation will be larger than _m_ by a few percents in tradeoff mode
-because the number of points with given upper bits will slightly vary.
+- the number of calls to the generator for the collision test is _t_ ·
+  _m_ · (2*ᵇ*)² · 2*ᵗᵈ*; the birthday-spacings test adds a further factor of 2*ᵇ*
+  for its second level.
+
+The memory actually _allocated_ is a distinct quantity: in tradeoff or
+decimation mode it exceeds _m_ by a few percent (to account for the small
+balls-into-bins variations), while in plain mode it is exactly _m_.
 
 The driver generates points from the selected PRNG, then sorts the resulting
 cell indices and either counts collisions or measures the distribution of
@@ -64,15 +70,20 @@ with 2 processors and one tradeoff bit enumerating the relevant part of the
 orbit to find the initial state of each segment breaks even, and with more
 processors it becomes competitive.
 
+Sorting and counting always run in parallel, and with `-P` so does generation.
+All parallel phases use the Rayon global thread pool, so you can customize the
+number of threads for every phase with the environment variable
+`RAYON_NUM_THREADS` (it defaults to the number of available cores).
+
 # Decimation
 
-To the best of my knkowledge, Melissa O'Neill's has been the first to [propose
+To the best of my knowledge, Melissa O'Neill's has been the first to [propose
 the use of decimation] to make a one-dimensional collision test most powerful
 (but note that her new “birthday test” in the quoted reference is just the
 standard collision test you can find in Knuth's TAoCP). Decimation increases the
 number of expected collisions because the approximate mean of the distribution
-in the sparse case is given by the square of the number of points divided by the
-number of cells.
+in the sparse case is given by the square of the number of points divided by
+twice the number of cells.
 
 We extend the idea to _t_-dimensional tests. We consider only tuples in which
 each of the _t_ numbers has its _d_ lower bits equal to zero, so tuples can

@@ -393,7 +393,7 @@ pub struct Prng {
 
 #[cfg(feature = "wyrand-reinerp")]
 impl Prng {
-    pub const NAME: &str = "wyrand";
+    pub const NAME: &str = "wyrand (reinerp)";
     pub fn new(seed: u64) -> Self {
         Self { x: seed }
     }

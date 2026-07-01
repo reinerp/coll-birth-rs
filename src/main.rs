@@ -11,7 +11,7 @@ use num::BigUint;
 use num::traits::ToPrimitive;
 
 use coll_birth::birthday::run_birthday_parallel;
-use coll_birth::cli::{self, Args};
+use coll_birth::cli::Args;
 use coll_birth::collision::run_test_parallel;
 use coll_birth::common::{compute_lambda_and_points, run_test, test_lambda};
 use coll_birth::prng::Prng;
@@ -41,8 +41,6 @@ where
 }
 
 fn main() {
-    cli::init_env_logger().expect("Failed to initialize the logger");
-
     let args = Args::parse();
     args.validate();
 
@@ -57,7 +55,7 @@ fn main() {
     }
 
     let cells = BigUint::from(2u32)
-        .pow((args.u - args.decimate.unwrap_or(0)) as _)
+        .pow((args.u - args.decimation_bits.unwrap_or(0)) as _)
         .pow(args.t as u32);
     if cells > BigUint::from(2u32).pow(128) {
         Args::die("you cannot have more than 2¹²⁸ cells");

@@ -24,12 +24,10 @@ mmap-rs = "0.7.0"
 bytemuck = "1.13.1"
 num = { version = "0.4.0", features = ["num-bigint"] }
 voracious_radix_sort = { version = "1.2.0", features = ["rayon", "voracious_multithread"] }
-dary_heap = "0.3"
 cdflib = "0.4.2"
-log = "0.4.20"
+
+[dev-dependencies]
 anyhow = "1.0.79"
-env_logger = "0.11.0"
-jiff = "0.2.15"
 
 [profile.release]
 lto = "fat"
