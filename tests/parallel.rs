@@ -237,6 +237,12 @@ fn faithful_birthday_plain_matches_sequential() {
 // 40000, which overflowed the old zero-headroom `buffer_size(points, 0)` class
 // buffer. The class buffer must carry the full t·d + b headroom, so the run
 // completes and still matches the sequential one.
+//
+// Excluded for the two 32-bit LCGs: their low bits are grossly non-uniform (bit
+// i has period 2^(i+1)), and decimated birthday-spacings keys on low bits, so the
+// kept spacings pile up past the class-buffer headroom and both the sequential and
+// parallel runs hit the designed non-uniformity abort.
+#[cfg(not(any(feature = "lcg_32_32_0xec65035", feature = "lcg_32_32_0x915f77f5")))]
 #[test]
 fn faithful_birthday_decimation_matches_sequential() {
     let seed = 3;
