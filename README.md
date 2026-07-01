@@ -65,7 +65,7 @@ If multiple cores are available, an option can make the generation of the output
 happen in parallel: the part of the orbit that needs to be generated is split
 into segments, and each core generates a segment. If the PRNG supports skipping,
 the starting states for each segment are computed using skipping. If no skipping
-is available, parallel generation is used only in case of tradeoffs, as even
+is available, parallel generation should be used only in case of tradeoffs, as even
 with 2 processors and one tradeoff bit enumerating the relevant part of the
 orbit to find the initial state of each segment breaks even, and with more
 processors it becomes competitive.
@@ -77,7 +77,7 @@ number of threads for every phase with the environment variable
 
 # Decimation
 
-To the best of my knowledge, Melissa O'Neill's has been the first to [propose
+To the best of my knowledge, Melissa O'Neill has been the first to [propose
 the use of decimation] to make a one-dimensional collision test most powerful
 (but note that her new “birthday test” in the quoted reference is just the
 standard collision test you can find in Knuth's TAoCP). Decimation increases the
@@ -236,7 +236,7 @@ multipliers with large figures of merit.
 
 Much less known is that figures of merit have nothing to do with the randomness of
 the output of the generator—they just describe its _uniformity_. If a multiplier
-is not uniform enough, it will fail collision test because too many outputs end
+is not uniform enough, it will fail a collision test because too many outputs end
 up in the same cell.
 
 However, if you can run large-scale collision test, a multiplier that is _too
@@ -314,4 +314,4 @@ this crate.
 [Guy Steele and I conducted to improve spectral coefficients]: https://doi.org/10.1002/spe.3030
 [their output is tightly coupled with that of a linear congruential generator with large prime modulus]: https://www.jstor.org/stable/2153884
 [_space-time tradeoffs_]: https://doi.org/10.1137/0220017
-[TestU01]: https://doc.org/10.1145/1268776.1268777
+[TestU01]: https://doi.org/10.1145/1268776.1268777

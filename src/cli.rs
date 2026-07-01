@@ -73,7 +73,7 @@ pub struct Args {
     /// one generated per thread. Jump-capable generators jump to each segment
     /// start, others reach it with a sequential pre-scan. This setting is
     /// detrimental if the generator is not jump-capable and there are no
-    /// tradeoff bits.
+    /// tradeoff bits.​
     #[arg(short = 'P', long)]
     pub parallel: bool,
 
@@ -85,7 +85,7 @@ pub struct Args {
 }
 
 impl Args {
-    /// The number of top tradeoff bits b (0 when `--tradeoff` is absent). Used by
+    /// The number of top tradeoff bits b (0 when `--tradeoff-bits` is absent). Used by
     /// both the collision and birthday-spacings tests.
     pub fn tradeoff_bits(&self) -> usize {
         self.tradeoff_bits.unwrap_or(0)
@@ -118,25 +118,25 @@ impl Args {
         // underflow the tradeoff bound.
         if self.decimation_bits.is_some() {
             if self.m.is_none() {
-                Self::die("--decimate requires explicit -m");
+                Self::die("--decimation-bits requires explicit -m");
             }
             if d < 1 {
-                Self::die("--decimate d must be at least 1");
+                Self::die("--decimation-bits d must be at least 1");
             }
             if d >= self.u {
                 Self::die(&format!(
-                    "--decimate d ({}) must be less than u ({})",
+                    "--decimation-bits d ({}) must be less than u ({})",
                     d, self.u
                 ));
             }
         }
         if let Some(b) = self.tradeoff_bits {
             if b < 1 {
-                Self::die("--tradeoff b must be at least 1");
+                Self::die("--tradeoff-bits b must be at least 1");
             }
             if b > self.t * (self.u - d) {
                 Self::die(&format!(
-                    "--tradeoff b ({}) must be at most t·(u - d) ({})",
+                    "--tradeoff-bits b ({}) must be at most t·(u - d) ({})",
                     b,
                     self.t * (self.u - d)
                 ));
@@ -146,7 +146,7 @@ impl Args {
             // every `1u64 << b` site (validation, the --pass share, the runners)
             // from shift-overflowing.
             if b >= 64 {
-                Self::die(&format!("--tradeoff b ({b}) must be less than 64"));
+                Self::die(&format!("--tradeoff-bits b ({b}) must be less than 64"));
             }
         }
         if self.checkpoints && self.birthday_spacings {
@@ -154,7 +154,7 @@ impl Args {
         }
         if let Some(k) = self.pass {
             match self.tradeoff_bits {
-                None => Self::die("--pass requires -b (--tradeoff)"),
+                None => Self::die("--pass requires -b (--tradeoff-bits)"),
                 Some(b) => {
                     let num_passes = 1u64 << b;
                     if k >= num_passes {
