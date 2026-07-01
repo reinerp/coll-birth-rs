@@ -2,10 +2,10 @@
 
 This crate implements two empirical tests for pseudorandom number generators
 (PRNGs), the _collision test_ and the _birthday-spacings test_. While such tests
-are implemented by batteries of tests such as TestU01 (and, in fact, are very
-easy to implement in a naive way), we implement new parallel algorithmic
-techniques that open the way to very large scale execution of these tests, even
-with a limited amount of memory.
+are implemented by batteries of tests such as [TestU01] (and, in fact, are very
+easy to implement in a naive way), we implement new algorithmic techniques that
+open the way to very large scale execution of these tests, even with a limited
+amount of memory.
 
 The tests draw the _u_ ≤ 64 − _s_ upper bits from the 64-bit PRNG output
 shifted to the left by _s_, _t_ times, forming _t_-tuples of cell indices. If
@@ -22,7 +22,7 @@ The main novelty of this crate is the implementation of [_space-time tradeoffs_]
 for the computation of the tests, borrowing standard techniques in database
 and stream counting.
 
-If _b_ ≤ _t_ (_u_ − _d_) tradeoff bits are specified, the combined cell index is
+If _b_ ≤ _t_ · (_u_ − _d_) tradeoff bits are specified, the combined cell index is
 partitioned into 2*ᵇ* contiguous value intervals by its top _b_ bits, and each
 interval is processed in a pass, iterating multiple times over the PRNG output.
 Both tests use the same top-bit partition: for collisions, equal points share
@@ -34,14 +34,15 @@ since spacings cluster near zero); thus, the birthday-spacings test runs
 (2*ᵇ*)² passes.
 
 For simplicity of interaction with the tool, the main parameter to the tests is
-_m_, the (approximate) number of memory locations to use. Then,
+_m_, the (approximate) number of memory locations, which, depending on _t_ ·
+(_u_ − _d_), will be `u32`, `u64`, or `u128`. Then,
 
-- the number of points is approximately _m_ · 2*ᵇ*;
+- the number of points is ≈ _m_ · 2*ᵇ*;
 
-- the number of samples from the orbit of the generator is _m_ · 2*ᵇ* · 2*ᵗᵈ*
+- the number of samples from the orbit of the generator is ≈ _m_ · 2*ᵇ* · 2*ᵗᵈ*
   (each _t_-tuple costs _t_ calls);
 
-- the number of calls to the generator for the collision test is _t_ · _m_ ·
+- the number of calls to the generator for the collision test is ≈ _t_ · _m_ ·
   (2*ᵇ*)² · 2*ᵗᵈ*; the birthday-spacings test adds a further factor of 2*ᵇ* for
   its second level.
 
@@ -78,8 +79,8 @@ each of the _t_ numbers has its _d_ lower bits equal to zero, so tuples can
 collide only among themselves, and the mean is multiplied by 2*ᵗᵈ* with respect
 to an undecimated test. We also extend decimation to the birthday-spacings test.
 
-Decimation can also be applied by considering any subset of bits being equal to
-any set of bit pattern, or more general mappings.
+Decimation can also in principle be applied by considering any subset of bits
+being equal to any set of bit pattern, or more general mappings.
 
 # Repetitions
 
@@ -132,16 +133,18 @@ Test completed in 146.49 seconds
 0	p=1 − 8.828901577425957e-13
 ```
 
-will test SplitMix using about 60 GiB of RAM, two tradeoff bits and parallel
-generation (we could have obtained the same result using a fourth of the RAM by
-choosing four tradeoff bits). Note that each tradeoff pass is interpretable as a
-decimation, and each prefix of tradeoff passes as a multi-target decimation, so
-corresponding _p_-values are output, helping to see where the computation is
-going. Since we were expecting _p_-values close to one, we used the
-pretty-printing option `-p` to switch to a more accurate display when
-the result is close to one.
+will test SplitMix on 32 billion points using about 60 GiB of RAM, two tradeoff
+bits and parallel generation (we could have obtained the same result using a
+fourth of the RAM by choosing four tradeoff bits). Note that each tradeoff pass
+is interpretable as a decimation, and each prefix of tradeoff passes as a
+multi-pattern decimation, so corresponding _p_-values are output, helping to see
+where the computation is going. Since we were expecting _p_-values close to one,
+we used the pretty-printing option `-p` to switch to a more accurate display
+when the result is close to one.
 
-As we mentioned, since there are no collisions using decimation with 2*b*/_t_ bits per dimension would be equivalent (here _t_ = 1, so 4 bits):
+As we mentioned, since there are no collisions using decimation on 2*b*/_t_ bits
+(here _t_ = 1, so 4 bits) per dimension (i.e., 64 billion undecimated points)
+would give an essentially equivalent result:
 
 ```text
 cargo run -r -F splitmix -- 64 1 8000000000 -d 4 -p -P
@@ -156,7 +159,12 @@ Test completed in 47.73 seconds
 0	p=1 − 8.829770712901635e-13
 ```
 
-Also repeating the test 16 times would be equivalent (as 1.7347 · 16 = 27.7552):
+The minuscule difference in the _p_-value is due to the discrepancy between the
+target number of decimated points (8 billions) and the actual number of
+decimated points (7999985821) obtained from 64 billion points.
+
+Also repeating the test 16 times on 8 billion points would be equivalent (as
+1.7347 · 16 = 27.7552):
 
 ```text
 cargo run -r -F splitmix -- 64 1 8000000000 -r 16 -p -P
@@ -213,10 +221,12 @@ hyperplanes spanned by vectors of consecutive outputs. It is a staple of the
 literature on the topic since the 60's that you should strive for the smallest
 possible distance, to which one associates a large _figure of merit_. A large
 body of research has studied spectral scores, and studied how to obtain
-multipliers with large figures of merit. Less known is that figures of merit
-have nothing to do with the randomness of the output of the generator—they just
-describe its _uniformity_. If a multiplier is not uniform enough, it will fail
-collision test because too many outputs end up in the same cell.
+multipliers with large figures of merit.
+
+Much less known is that figures of merit have nothing to do with the randomness of
+the output of the generator—they just describe its _uniformity_. If a multiplier
+is not uniform enough, it will fail collision test because too many outputs end
+up in the same cell.
 
 However, if you can run large-scale collision test, a multiplier that is _too
 good_ will fail, too, as the hyperplanes are still there:
@@ -238,7 +248,7 @@ Test completed in 353.10 seconds
 ```
 
 The multiplier, for 64-bit ACGs with 64 bits of state, has been found during the
-large-scale search that [I conducted with Guy Steele to improve spectral
+large-scale search that [Guy Steele and I conducted to improve spectral
 coefficients]. Its *f*₂ figure of merit is a whopping 0.977689—almost perfect.
 As a result, the generator fails catastrophically to reproduce the right number
 of collisions for pairs of consecutive outputs. Note that without space-time
@@ -290,6 +300,7 @@ this crate.
 [WyHash]: https://github.com/wangyi-fudan/wyhash
 [very interesting discussion]: https://github.com/alvoskov/SmokeRand/issues/24
 [propose the use of decimation]: https://www.pcg-random.org/posts/birthday-test.html
-[I conducted with Guy Steele to improve spectral coefficients]: https://doi.org/10.1002/spe.3030
+[Guy Steele and I conducted to improve spectral coefficients]: https://doi.org/10.1002/spe.3030
 [their output is tightly coupled with that of a linear congruential generator with large prime modulus]: https://www.jstor.org/stable/2153884
 [_space-time tradeoffs_]: https://doi.org/10.1137/0220017
+[TestU01]: https://doc.org/10.1145/1268776.1268777
