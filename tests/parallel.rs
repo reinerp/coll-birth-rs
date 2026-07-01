@@ -28,8 +28,8 @@ fn make_args(u: usize, t: usize, m: usize, tradeoff: Option<usize>, seed: u64) -
         t,
         m: Some(m),
         s: 0,
-        tradeoff,
-        decimate: None,
+        tradeoff_bits: tradeoff,
+        decimation_bits: None,
         checkpoints: false,
         birthday_spacings: false,
         reps: 1,
@@ -151,7 +151,7 @@ fn faithful_tradeoff_matches_sequential() {
 fn faithful_decimation_matches_sequential() {
     let seed = 0x0DEC_1A7E_0000_0001;
     let mut args = make_args(14, 2, 1 << 14, None, seed);
-    args.decimate = Some(2);
+    args.decimation_bits = Some(2);
     let cells = BigUint::from(2u32)
         .pow((args.u - 2) as u32)
         .pow(args.t as u32);
@@ -168,7 +168,7 @@ fn faithful_decimation_matches_sequential() {
 fn faithful_decimation_tradeoff_matches_sequential() {
     let seed = 0x0DEC_1A7E_0000_0002;
     let mut args = make_args(14, 2, 1 << 12, Some(2), seed);
-    args.decimate = Some(2);
+    args.decimation_bits = Some(2);
     let cells = BigUint::from(2u32)
         .pow((args.u - 2) as u32)
         .pow(args.t as u32);
@@ -183,7 +183,7 @@ fn faithful_decimation_tradeoff_matches_sequential() {
 
 fn checkpoint_args(seed: u64) -> (Args, BigUint) {
     let mut args = make_args(16, 2, 1 << 14, None, seed);
-    args.decimate = Some(2);
+    args.decimation_bits = Some(2);
     args.checkpoints = true;
     let cells = BigUint::from(2u32)
         .pow((args.u - 2) as u32)
@@ -242,7 +242,7 @@ fn faithful_birthday_decimation_matches_sequential() {
     let seed = 3;
     let mut args = make_args(30, 2, 40_000, None, seed);
     args.birthday_spacings = true;
-    args.decimate = Some(2);
+    args.decimation_bits = Some(2);
     let cells = BigUint::from(2u32)
         .pow((args.u - 2) as u32)
         .pow(args.t as u32); // effective cells 2^((u−d)·t)
