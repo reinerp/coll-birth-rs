@@ -25,6 +25,7 @@ bytemuck = "1.13.1"
 num = { version = "0.4.0", features = ["num-bigint"] }
 voracious_radix_sort = { version = "1.2.0", features = ["rayon", "voracious_multithread"] }
 cdflib = "0.4.2"
+arrayvec = "0.7"
 
 [dev-dependencies]
 anyhow = "1.0.79"
@@ -51,6 +52,9 @@ splitmix = ["_prng"]
 incr = ["_prng"]
 wyrand = ["_prng"]
 wyrand-reinerp = ["_prng"]
+wyrand-v4 = ["_prng"]
+wayrand = ["_prng"]
+wyrand128 = ["_prng"]
 romuduo = ["_prng"]
 romuduojr = ["_prng"]
 romutrio = ["_prng"]

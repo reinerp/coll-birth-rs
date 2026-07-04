@@ -35,6 +35,7 @@ pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL:
     prng: &mut Prng,
     params: &GridParams,
     buf: &mut [T],
+    scratch: &mut [T],
     points: usize,
 ) -> (usize, usize) {
     let mut sw = Stopwatch::new();
@@ -59,13 +60,13 @@ pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL:
     let pts = &mut buf[..len];
 
     eprint!("[{:.3}s] sorting...", sw.lap());
-    T::sort_mt(pts);
+    T::sort_mt(pts, &mut scratch[..]);
 
     eprint!("[{:.3}s] computing deltas...", sw.lap());
     compute_spacings(pts, params.cells);
 
     eprint!("[{:.3}s] sorting deltas...", sw.lap());
-    T::sort_mt(pts);
+    T::sort_mt(pts, &mut scratch[..]);
 
     eprint!("[{:.3}s] counting collisions...", sw.lap());
     let c = count_adjacent_equals(pts);
@@ -480,6 +481,12 @@ pub fn run_birthday_parallel<T: Cell>(
     let mut lambda_sum = 0.0f64;
     let cells_f64 = cells.to_f64().unwrap();
 
+    // Sort scratch, allocated once (huge pages, prefaulted) and reused by every
+    // interval and class sort of every rep: mapping/unmapping it per sort would
+    // cost far more than the sort itself.
+    let mut scratch_mmap = alloc_mmap::<T>(interval_cap.max(class_cap));
+    let scratch: &mut [T] = bytemuck::try_cast_slice_mut(&mut scratch_mmap).unwrap();
+
     for rep in 1..=args.reps {
         let mut interval_buf = alloc_mmap::<T>(interval_cap);
         let mut class_buf = alloc_mmap::<T>(class_cap);
@@ -550,7 +557,7 @@ pub fn run_birthday_parallel<T: Cell>(
                 }
                 eprint!("[{:.3}s] sort...", isw.lap());
                 let interval: &mut [T] = &mut unit[..total];
-                T::sort_mt(interval);
+                T::sort_mt(interval, &mut scratch[..]);
                 let interval_max = interval[total - 1];
                 if global_min.is_none() {
                     global_min = Some(interval[0]);
@@ -655,7 +662,7 @@ pub fn run_birthday_parallel<T: Cell>(
                     }
                 }
             }
-            T::sort_mt(&mut class[..class_len]);
+            T::sort_mt(&mut class[..class_len], &mut scratch[..]);
             let class_coll = count_adjacent_equals(&class[..class_len]);
             rep_coll += class_coll;
             let classes_done = (j - pass_lo + 1) as f64;

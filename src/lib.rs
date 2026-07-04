@@ -14,5 +14,6 @@ pub mod collision;
 pub mod common;
 #[allow(dead_code, clippy::result_unit_err)]
 pub mod prng;
+pub mod sorting;
 pub mod stats;
 pub mod util;

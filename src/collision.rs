@@ -20,7 +20,7 @@ use crate::common::{
 };
 use crate::prng::Prng;
 use crate::stats::{expected_collisions, format_p_value, p_value};
-use crate::util::Stopwatch;
+use crate::util::{Stopwatch, parallelism};
 
 /// Runs a collision test.
 ///
@@ -36,6 +36,7 @@ pub fn run_collision<T: Cell, const DIM: usize, const FULL: bool>(
     prng: &mut Prng,
     params: &GridParams,
     buf: &mut [T],
+    scratch: &mut [T],
 ) -> (usize, usize) {
     let mut sw = Stopwatch::new();
     eprint!("Generating points...");
@@ -44,7 +45,7 @@ pub fn run_collision<T: Cell, const DIM: usize, const FULL: bool>(
     }
 
     eprint!("[{:.3}s] sorting...", sw.lap());
-    T::sort_mt(buf);
+    T::sort_mt(buf, scratch);
 
     eprint!("[{:.3}s] counting collisions...", sw.lap());
     let c = count_adjacent_equals(buf);
@@ -78,6 +79,7 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
     prng: &mut Prng,
     params: &GridParams,
     buf: &mut [T],
+    scratch: &mut [T],
     points: usize,
     b: usize,
     cells_per_pass: f64,
@@ -149,9 +151,10 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
             }
         }
         eprint!("[{:.3}s] sort...", sw.lap());
+        eprint!("parallelism: {}", parallelism());
 
         let slice = &mut buf[..len];
-        T::sort_mt(slice);
+        T::sort_mt(slice, &mut scratch[..]);
         eprint!("[{:.3}s] count...", sw.lap());
 
         let c = count_adjacent_equals(slice);
@@ -208,6 +211,7 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
     prng: &mut Prng,
     params: &GridParams,
     buf: &mut [T],
+    scratch: &mut [T],
     points: usize,
     effective_cells: f64,
     checkpoints: bool,
@@ -235,7 +239,8 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
             }
         }
         eprint!("[{:.3}s] sort...", sw.lap());
-        T::sort_mt(&mut buf[..len]);
+        eprint!("parallelism: {}", parallelism());
+        T::sort_mt(&mut buf[..len], &mut scratch[..]);
         eprint!("[{:.3}s] count...", sw.lap());
         let c = count_adjacent_equals(&buf[..len]);
         eprintln!("[{:.3}s] {len} points done.", sw.lap());
@@ -269,8 +274,9 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
         }
         scanned = target_scanned;
         eprint!("[{:.3}s] sort...", sw.lap());
+        eprint!("parallelism: {}", parallelism());
 
-        T::sort_mt(&mut aux[..got]);
+        T::sort_mt(&mut aux[..got], &mut scratch[..]);
         eprint!("[{:.3}s] merge...", sw.lap());
 
         // The cumulative kept count is itself headroom-bounded; check before the
@@ -426,6 +432,11 @@ pub fn run_test_parallel<T: Cell>(
         // Uniform per-thread sub-region capacities of the one contiguous stage buffer.
         let stage_caps: Box<[usize]> = vec![thread_cap; num_cpus].into_boxed_slice();
         let stage_buf_len = thread_cap * num_cpus;
+        // Sort scratch, allocated once (huge pages, prefaulted) and reused by
+        // every checkpoint of every rep: mapping/unmapping it per sort would
+        // cost far more than the sort itself.
+        let mut scratch_mmap = alloc_mmap::<T>(stage_buf_len);
+        let scratch: &mut [T] = bytemuck::try_cast_slice_mut(&mut scratch_mmap).unwrap();
         for rep in 1..=args.reps {
             let mut acc = alloc_mmap::<T>(acc_cap);
             let mut acc_len = 0usize;
@@ -464,9 +475,10 @@ pub fn run_test_parallel<T: Cell>(
                     full,
                 );
                 eprint!("[{:.3}s] sort...", psw.lap());
+                eprint!("parallelism: {}", parallelism());
 
                 // Phase 2: sort the contiguous stage run.
-                T::sort_mt(&mut stage_buf[..stage_len]);
+                T::sort_mt(&mut stage_buf[..stage_len], &mut scratch[..]);
                 eprint!("[{:.3}s] merge...", psw.lap());
 
                 // Fold the sorted stage run into the cumulative sorted
@@ -514,6 +526,12 @@ pub fn run_test_parallel<T: Cell>(
     // compacts.
     let caps: Box<[usize]> = (0..num_cpus).map(buf_len).collect();
 
+    // Sort scratch, allocated once (huge pages, prefaulted) and reused by every
+    // pass of every rep: mapping/unmapping it per sort would cost far more than
+    // the sort itself.
+    let mut scratch_mmap = alloc_mmap::<T>(total_buf);
+    let scratch: &mut [T] = bytemuck::try_cast_slice_mut(&mut scratch_mmap).unwrap();
+
     for rep in 1..=args.reps {
         // One contiguous buffer (sized Σ caps == total_buf), reused across every
         // pass of this repetition: threads fill disjoint sub-regions, the gaps are
@@ -550,9 +568,10 @@ pub fn run_test_parallel<T: Cell>(
                 buf, &caps, &snapshots, &params, &chunk, pass, tradeoff_b, decimating, full,
             );
             eprint!("[{:.3}s] sort...", psw.lap());
+            eprint!("parallelism: {}", parallelism());
 
             // Phase 2: one sort over the whole contiguous unit.
-            T::sort_mt(&mut buf[..pass_points]);
+            T::sort_mt(&mut buf[..pass_points], &mut scratch[..]);
             eprint!("[{:.3}s] count...", psw.lap());
 
             // Phase 3: one linear scan; the union is already contiguous and sorted,

@@ -810,6 +810,18 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
     let mut mapped = alloc_mmap::<T>(buf_len);
     let buf: &mut [T] = bytemuck::try_cast_slice_mut(&mut mapped).unwrap();
 
+    // Sort scratch for the runners that use the out-of-place sort_mt, allocated
+    // once (huge pages, prefaulted) and reused across repetitions:
+    // mapping/unmapping it per sort would cost far more than the sort itself.
+    // The birthday tradeoff runner sorts in place (sort_st) precisely to avoid
+    // doubling RSS, so it gets no scratch.
+    let needs_mt_scratch = !(args.birthday_spacings && tradeoff_b > 0);
+    let mut scratch_mapped = needs_mt_scratch.then(|| alloc_mmap::<T>(buf_len));
+    let scratch: &mut [T] = match scratch_mapped.as_mut() {
+        Some(m) => bytemuck::try_cast_slice_mut(m).unwrap(),
+        None => &mut [],
+    };
+
     let params = GridParams {
         u: args.u,
         t: args.t,
@@ -875,17 +887,17 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                     } else {
                         match (decimating, full) {
                             (false, false) => run_birthday::<T, $dim, false, false>(
-                                &mut prng, &params, buf, points,
+                                &mut prng, &params, buf, scratch, points,
                             ),
                             (true, false) => run_birthday::<T, $dim, true, false>(
-                                &mut prng, &params, buf, points,
+                                &mut prng, &params, buf, scratch, points,
                             ),
                             (false, true) => run_birthday::<T, $dim, false, true>(
-                                &mut prng, &params, buf, points,
+                                &mut prng, &params, buf, scratch, points,
                             ),
-                            (true, true) => {
-                                run_birthday::<T, $dim, true, true>(&mut prng, &params, buf, points)
-                            }
+                            (true, true) => run_birthday::<T, $dim, true, true>(
+                                &mut prng, &params, buf, scratch, points,
+                            ),
                         }
                     }
                 } else if tradeoff_b > 0 {
@@ -895,6 +907,7 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                             &mut prng,
                             &params,
                             buf,
+                            scratch,
                             points,
                             tradeoff_b,
                             cells_per_pass,
@@ -906,6 +919,7 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                             &mut prng,
                             &params,
                             buf,
+                            scratch,
                             points,
                             tradeoff_b,
                             cells_per_pass,
@@ -919,6 +933,7 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                             &mut prng,
                             &params,
                             buf,
+                            scratch,
                             points,
                             effective_cells_f64,
                             args.checkpoints,
@@ -929,6 +944,7 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                             &mut prng,
                             &params,
                             buf,
+                            scratch,
                             points,
                             effective_cells_f64,
                             args.checkpoints,
@@ -936,9 +952,9 @@ pub fn run_test<T: Cell>(args: &Args, points: usize, cells: &BigUint, lambda: f6
                         )
                     }
                 } else if full {
-                    run_collision::<T, $dim, true>(&mut prng, &params, buf)
+                    run_collision::<T, $dim, true>(&mut prng, &params, buf, scratch)
                 } else {
-                    run_collision::<T, $dim, false>(&mut prng, &params, buf)
+                    run_collision::<T, $dim, false>(&mut prng, &params, buf, scratch)
                 }
             }};
         }

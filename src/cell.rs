@@ -10,6 +10,7 @@
 use voracious_radix_sort::{RadixSort, ska_sort};
 
 use crate::prng::Prng;
+use crate::sorting;
 use crate::util::parallelism;
 
 /// Storage and operations required for a cell-index integer type.
@@ -38,8 +39,12 @@ pub trait Cell:
     /// spacing (balanced, unlike the top bits which cluster near zero).
     fn low_bits_mask(b: usize) -> Self;
 
-    /// Sorts `v` in place using a multithreaded radix sort.
-    fn sort_mt(v: &mut [Self]);
+    /// Sorts `v` in place using a multithreaded radix sort. `scratch` must be
+    /// at least as long as `v`; the caller allocates it (ideally once, with
+    /// huge pages and prefaulted — see `alloc_mmap`) because it sees the
+    /// repetition/pass loops, so the buffer is reused instead of being
+    /// mapped and unmapped around every sort.
+    fn sort_mt(v: &mut [Self], scratch: &mut [Self]);
 
     /// Sorts `v` in place using a single-threaded radix sort.
     fn sort_st(v: &mut [Self]);
@@ -66,8 +71,9 @@ macro_rules! impl_cell {
                     (1 as $t).wrapping_shl(b as u32).wrapping_sub(1)
                 }
             }
-            fn sort_mt(v: &mut [Self]) {
-                v.voracious_mt_sort(parallelism());
+            fn sort_mt(_v: &mut [Self], _scratch: &mut [Self]) {
+                panic!()
+                // v.voracious_mt_sort(parallelism());
             }
             fn sort_st(v: &mut [Self]) {
                 // In-place American-flag (MSD) radix sort. Unlike voracious_sort,
@@ -83,8 +89,41 @@ macro_rules! impl_cell {
 }
 
 impl_cell!(u32, 32);
-impl_cell!(u64, 64);
+// impl_cell!(u64, 64);
 impl_cell!(u128, 128);
+
+impl Cell for u64 {
+    const ZERO: Self = 0;
+
+    #[inline(always)]
+    fn from_u64(x: u64) -> Self {
+        x as Self
+    }
+    #[inline(always)]
+    fn from_u128(x: u128) -> Self {
+        x as Self
+    }
+    #[inline(always)]
+    fn low_bits_mask(b: usize) -> Self {
+        if b >= 64 {
+            !0
+        } else {
+            (1 as u64).wrapping_shl(b as u32).wrapping_sub(1)
+        }
+    }
+    fn sort_mt(v: &mut [Self], scratch: &mut [Self]) {
+        sorting::sort_uniform_u64s(v, 64, scratch);
+    }
+    fn sort_st(v: &mut [Self]) {
+        // In-place American-flag (MSD) radix sort. Unlike voracious_sort,
+        // which dispatches to the diverting-LSD dlsd_radixsort and allocates
+        // a full size-n scratch buffer, ska_sort permutes within v using
+        // only O(radix-range) bookkeeping. This matters in parallel tradeoff
+        // mode, where num_cpus threads each sort concurrently: an out-of-place
+        // sort would double peak RSS (mmap buffers + per-thread scratch).
+        ska_sort(v, 8);
+    }
+}
 
 /// Draws a single (non-decimated) cell index from `prng`.
 ///

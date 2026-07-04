@@ -411,6 +411,120 @@ impl Prng {
     }
 }
 
+// ----- wyrand (wyhash v4 constants) ---------------------------------------------------
+//
+// Ported from practrand-rs `src/rngs/wyrand.rs`. Canonical WyRand from the final v4
+// wyhash.h: advance the additive counter, then `_wymix(state, state ^ XOR)`, folding
+// the halves of the 128-bit product. Distinct from the `wyrand` feature above, which
+// uses the older wyhash constants and a different mix. The state is a pure additive
+// counter, so jump-ahead is `state += n·ADD`.
+
+#[cfg(feature = "wyrand-v4")]
+#[derive(Clone, Copy)]
+pub struct Prng {
+    x: u64,
+}
+
+#[cfg(feature = "wyrand-v4")]
+impl Prng {
+    pub const NAME: &str = "wyrand (wyhash v4)";
+    pub fn new(seed: u64) -> Self {
+        Self { x: seed }
+    }
+
+    #[inline(always)]
+    pub fn next_u64(&mut self) -> u64 {
+        const ADD: u64 = 0x2d358dccaa6c78a5;
+        const XOR: u64 = 0x8bb84b93962eacc9;
+        self.x = self.x.wrapping_add(ADD);
+        let a = self.x as u128;
+        let b = (self.x ^ XOR) as u128;
+        let p = a.wrapping_mul(b);
+        (p as u64) ^ ((p >> 64) as u64)
+    }
+
+    pub fn try_skip(&mut self, n: u64) -> Result<(), ()> {
+        const ADD: u64 = 0x2d358dccaa6c78a5;
+        self.x = self.x.wrapping_add(n.wrapping_mul(ADD));
+        Ok(())
+    }
+}
+
+// ----- wayrand ------------------------------------------------------------------------
+//
+// Ported from practrand-rs `src/rngs/wayrand.rs`. A WyRand variant: the first `_wymix`
+// multiplicand is the PREVIOUS state `v` rather than the new state `s`, i.e.
+// `hi ⊕ lo` of `v · (s ^ XOR)` where `s = v + ADD`. Like v4 wyrand the state is a pure
+// additive counter, so jump-ahead is `state += n·ADD`.
+
+#[cfg(feature = "wayrand")]
+#[derive(Clone, Copy)]
+pub struct Prng {
+    x: u64,
+}
+
+#[cfg(feature = "wayrand")]
+impl Prng {
+    pub const NAME: &str = "wayrand";
+    pub fn new(seed: u64) -> Self {
+        Self { x: seed }
+    }
+
+    #[inline(always)]
+    pub fn next_u64(&mut self) -> u64 {
+        const ADD: u64 = 0x2d358dccaa6c78a5;
+        const XOR: u64 = 0x8bb84b93962eacc9;
+        let v = self.x; // old state
+        let s = v.wrapping_add(ADD); // new state
+        self.x = s;
+        let t = (v as u128).wrapping_mul((s ^ XOR) as u128);
+        ((t >> 64) as u64) ^ (t as u64)
+    }
+
+    pub fn try_skip(&mut self, n: u64) -> Result<(), ()> {
+        const ADD: u64 = 0x2d358dccaa6c78a5;
+        self.x = self.x.wrapping_add(n.wrapping_mul(ADD));
+        Ok(())
+    }
+}
+
+// ----- wyrand128 (FoldRand128) --------------------------------------------------------
+//
+// Ported from practrand-rs `src/rngs/wyrand128.rs`. WyRand's two 64-bit constants are
+// concatenated into a single 128-bit additive constant `ADD = ADD_HI ## ADD_LO`, and
+// the counter is widened to 128 bits; each step folds `lo64(state) · (hi64 ^ lo64)`.
+// The state is a 128-bit additive counter, so jump-ahead is `state += n·ADD`.
+
+#[cfg(feature = "wyrand128")]
+#[derive(Clone, Copy)]
+pub struct Prng {
+    x: u128,
+}
+
+#[cfg(feature = "wyrand128")]
+impl Prng {
+    pub const NAME: &str = "wyrand128 (FoldRand128)";
+    pub fn new(seed: u64) -> Self {
+        Self { x: seed as u128 }
+    }
+
+    #[inline(always)]
+    pub fn next_u64(&mut self) -> u64 {
+        const ADD: u128 = ((0x2d358dccaa6c78a5u128) << 64) | 0x8bb84b93962eacc9u128;
+        self.x = self.x.wrapping_add(ADD);
+        let lo = self.x as u64;
+        let hi = (self.x >> 64) as u64;
+        let p = (lo as u128).wrapping_mul((hi ^ lo) as u128);
+        (p as u64) ^ ((p >> 64) as u64)
+    }
+
+    pub fn try_skip(&mut self, n: u64) -> Result<(), ()> {
+        const ADD: u128 = ((0x2d358dccaa6c78a5u128) << 64) | 0x8bb84b93962eacc9u128;
+        self.x = self.x.wrapping_add((n as u128).wrapping_mul(ADD));
+        Ok(())
+    }
+}
+
 // ----- Romu family --------------------------------------------------------------------
 
 #[cfg(feature = "romuduo")]
