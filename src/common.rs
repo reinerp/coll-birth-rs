@@ -14,7 +14,7 @@ use num::traits::ToPrimitive;
 use rayon::prelude::*;
 
 use crate::birthday::{run_birthday, run_birthday_tradeoff};
-use crate::cell::{Cell, cell_index, decimate_once};
+use crate::cell::{Cell, cell_index, decimate_candidate, decimate_once};
 use crate::cli::Args;
 use crate::collision::{run_collision, run_collision_decimate, run_collision_tradeoff};
 use crate::prng::Prng;
@@ -182,6 +182,222 @@ impl GridParams<'_> {
         prng: &mut Prng,
     ) -> Option<T> {
         decimate_once::<T, DIM, FULL>(prng, self.t, self.u, self.s, self.d)
+    }
+
+    /// One candidate sample (exactly *t* draws) with a *keep* flag instead of
+    /// an `Option`: with `DECIMATE` the flag is the decimation acceptance,
+    /// otherwise it is always true. See [`decimate_candidate`].
+    #[inline]
+    pub fn draw_candidate<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL: bool>(
+        &self,
+        prng: &mut Prng,
+    ) -> (T, bool) {
+        if DECIMATE {
+            decimate_candidate::<T, DIM, FULL>(prng, self.t, self.u, self.s, self.d)
+        } else {
+            (cell_index::<T, DIM, FULL>(prng, self.t, self.u, self.s), true)
+        }
+    }
+}
+
+/// Branchless candidate scan shared by every generate loop: draws `scan_len`
+/// candidate samples (exactly *t* PRNG draws each), keeping the decimation
+/// survivors and, when `TRADEOFF`, only those whose top-*b* value-interval key
+/// equals `pass`; kept samples are written densely to the front of `buf` and
+/// the kept count is returned. `prng` is advanced in place by exactly
+/// `scan_len` samples.
+///
+/// The hot loop has no data-dependent branch: whether a sample is kept is
+/// random (probability 2^(-t·d), 2^(-b), or their product), so an if-around-
+/// the-store mispredicts constantly. Instead every candidate is written
+/// unconditionally at the cursor, and the cursor advances only when the sample
+/// is kept:
+///
+/// ```text
+/// write(dst, x); dst += keep as usize;
+/// ```
+///
+/// Rejected values are simply overwritten by the next candidate (the slot is
+/// re-written until something sticks, staying in L1), so the actual write
+/// traffic is only the kept points. The keep mask and pass key are hoisted
+/// out of the loop.
+///
+/// The scan runs in blocks: a block whose worst case fits the remaining
+/// capacity takes the branchless path (the unconditional store needs
+/// headroom); otherwise a careful per-element path preserves the exact
+/// old overflow semantics (`bin_overflow` fires only when a *kept* point
+/// exceeds `buf`). This also makes an exactly-sized `buf` safe: the last
+/// few blocks fall back to the careful path and never write past the end.
+#[inline]
+pub(crate) fn scan_keep<
+    T: Cell,
+    const DIM: usize,
+    const DECIMATE: bool,
+    const FULL: bool,
+    const TRADEOFF: bool,
+>(
+    prng: &mut Prng,
+    params: &GridParams,
+    buf: &mut [T],
+    scan_len: usize,
+    pass: u64,
+    tradeoff_b: usize,
+    overflow_what: &'static str,
+) -> usize {
+    let t = params.t;
+    let d = params.d;
+    let elem_width = if DECIMATE { params.u - d } else { params.u };
+    // Pass k holds the points whose top b bits of the combined index equal k
+    // (one contiguous value interval); see run_collision_tradeoff. Computed
+    // unconditionally but only meaningful (and only applied) when TRADEOFF.
+    let key_shift = if TRADEOFF {
+        t * elem_width - tradeoff_b
+    } else {
+        0
+    };
+    let target = T::from_u64(pass);
+
+    const BLOCK: usize = 4096;
+    let cap = buf.len();
+    let base = buf.as_mut_ptr();
+    let mut len = 0usize;
+    let mut remaining = scan_len;
+    while remaining > 0 {
+        let block = remaining.min(BLOCK);
+        if len + block <= cap {
+            // Fast path: even if every candidate in this block is kept it
+            // fits, so the unconditional store below stays in bounds.
+            let mut dst = unsafe { base.add(len) };
+            for _ in 0..block {
+                let (x, mut keep) = params.draw_candidate::<T, DIM, DECIMATE, FULL>(prng);
+                if TRADEOFF {
+                    let mut key = x;
+                    key >>= key_shift;
+                    keep &= key == target;
+                }
+                // SAFETY: dst stays within buf: it starts at base + len and
+                // advances at most `block` times, and len + block <= cap.
+                unsafe {
+                    std::ptr::write(dst, x);
+                    dst = dst.add(keep as usize);
+                }
+            }
+            len = unsafe { dst.offset_from(base) } as usize;
+        } else {
+            // Careful path, reachable only within `block` slots of the end of
+            // the headroom: keep-checked stores, overflow on the first kept
+            // point past cap.
+            for _ in 0..block {
+                let (x, mut keep) = params.draw_candidate::<T, DIM, DECIMATE, FULL>(prng);
+                if TRADEOFF {
+                    let mut key = x;
+                    key >>= key_shift;
+                    keep &= key == target;
+                }
+                if keep {
+                    *buf.get_mut(len)
+                        .unwrap_or_else(|| bin_overflow(overflow_what)) = x;
+                    len += 1;
+                }
+            }
+        }
+        remaining -= block;
+    }
+    len
+}
+
+/// Store-free twin of [`scan_keep`]: replays the same candidate stream and
+/// returns only the kept count. Used as the first half of count-then-fill
+/// generation (see [`gen_unit_contiguous`]): knowing each thread's exact kept
+/// count lets threads write directly into exactly-sized disjoint regions,
+/// removing the single-threaded gap-compaction memmove that otherwise
+/// dominates the generate phase.
+#[inline]
+fn scan_count<
+    T: Cell,
+    const DIM: usize,
+    const DECIMATE: bool,
+    const FULL: bool,
+    const TRADEOFF: bool,
+>(
+    mut prng: Prng,
+    params: &GridParams,
+    scan_len: usize,
+    pass: u64,
+    tradeoff_b: usize,
+) -> usize {
+    let t = params.t;
+    let elem_width = if DECIMATE {
+        params.u - params.d
+    } else {
+        params.u
+    };
+    let key_shift = if TRADEOFF {
+        t * elem_width - tradeoff_b
+    } else {
+        0
+    };
+    let target = T::from_u64(pass);
+
+    let mut count = 0usize;
+    for _ in 0..scan_len {
+        let (x, mut keep) = params.draw_candidate::<T, DIM, DECIMATE, FULL>(&mut prng);
+        if TRADEOFF {
+            let mut key = x;
+            key >>= key_shift;
+            keep &= key == target;
+        }
+        count += keep as usize;
+    }
+    count
+}
+
+/// Per-thread kept-count of one pass: the counting counterpart of
+/// [`gen_pass_dispatch`], with the same `DIM`/`DECIMATE`/`FULL`/tradeoff
+/// specialization matrix.
+fn gen_count_dispatch<T: Cell>(
+    snapshot: Prng,
+    params: &GridParams,
+    stream_len: usize,
+    pass: u64,
+    tradeoff_b: usize,
+    decimating: bool,
+    full: bool,
+) -> usize {
+    macro_rules! go {
+        ($dim:literal) => {{
+            if tradeoff_b > 0 {
+                match (decimating, full) {
+                    (true, true) => scan_count::<T, $dim, true, true, true>(
+                        snapshot, params, stream_len, pass, tradeoff_b,
+                    ),
+                    (true, false) => scan_count::<T, $dim, true, false, true>(
+                        snapshot, params, stream_len, pass, tradeoff_b,
+                    ),
+                    (false, true) => scan_count::<T, $dim, false, true, true>(
+                        snapshot, params, stream_len, pass, tradeoff_b,
+                    ),
+                    (false, false) => scan_count::<T, $dim, false, false, true>(
+                        snapshot, params, stream_len, pass, tradeoff_b,
+                    ),
+                }
+            } else if full {
+                scan_count::<T, $dim, true, true, false>(snapshot, params, stream_len, 0, 0)
+            } else {
+                scan_count::<T, $dim, true, false, false>(snapshot, params, stream_len, 0, 0)
+            }
+        }};
+    }
+    match params.t {
+        1 => go!(1),
+        2 => go!(2),
+        3 => go!(3),
+        4 => go!(4),
+        5 => go!(5),
+        6 => go!(6),
+        7 => go!(7),
+        8 => go!(8),
+        _ => go!(0),
     }
 }
 
@@ -463,49 +679,26 @@ pub(crate) fn gen_pass_dispatch<T: Cell>(
     }
 }
 
-/// Close the gaps left by under-filled per-thread sub-regions, in place.
+/// Faithfully generate one work-unit's points into a single contiguous buffer,
+/// by count-then-fill:
 ///
-/// `buf` is partitioned into `caps[i]`-sized sub-regions (sub-region `i` begins at
-/// the prefix sum of `caps[..i]`); thread `i` wrote `used[i] ≤ caps[i]` kept points
-/// into the front of its sub-region. This shifts each block left to close the gaps,
-/// leaving the kept points contiguous in `buf[..total]`, and returns `total = Σ used`.
+/// 1. every thread replays its orbit segment with a store-free scan
+///    ([`scan_count`]) to learn its *exact* kept count (skipped in plain mode,
+///    where every draw is kept);
+/// 2. `buf` is split into exactly-sized disjoint regions at the counts' prefix
+///    sums, and every thread re-replays its segment writing its kept points
+///    directly into its region ([`gen_pass_dispatch`]).
 ///
-/// Every destination is ≤ its source (since `Σ used ≤ Σ caps`), so the moves are
-/// leftward; performed left to right, block `i`'s destination ends at the start of
-/// block `i+1`'s still-untouched source and block `i−1` has already vacated, so no
-/// move clobbers an unread source. `copy_within` covers the intra-block overlap. In
-/// plain mode `used[i] == caps[i]`, every destination equals its source, and this is
-/// a no-op.
-fn compact_blocks<T: Cell>(buf: &mut [T], caps: &[usize], used: &[usize]) -> usize {
-    debug_assert_eq!(caps.len(), used.len());
-    let mut src_base = 0usize;
-    let mut dst = 0usize;
-    for (&cap, &len) in caps.iter().zip(used) {
-        debug_assert!(len <= cap);
-        if dst != src_base {
-            buf.copy_within(src_base..src_base + len, dst);
-        }
-        dst += len;
-        src_base += cap;
-    }
-    dst
-}
-
-/// Faithfully generate one work-unit's points into a single contiguous buffer.
+/// The counting scan re-draws the whole stream, but it is store-free and fully
+/// parallel — far cheaper than the alternative, closing the inter-region gaps
+/// afterwards with a single-threaded memmove over the whole buffer (measured
+/// ~10x the fill time at 32e9 points). The kept points end up contiguous in
+/// `buf[..total]` with no compaction and no per-thread headroom.
 ///
-/// Threads fill disjoint `caps`-sized sub-regions of `buf` from their orbit
-/// `snapshots` (via [`gen_pass_dispatch`]); the gaps left by under-filled
-/// sub-regions are then closed in place by [`compact_blocks`]. Returns `total_used`;
-/// on return `buf[..total_used]` holds the kept points (unsorted) so that a single
-/// [`Cell::sort_mt`] + linear [`count_adjacent_equals`] serves both tests, replacing
-/// the per-thread buffers + k-way merge the parallel collision runner used before.
-///
-/// `buf.len()` must be at least `Σ caps`; each `caps[i]` is the headroom-sized
-/// capacity of thread `i`'s sub-region and `chunk(i)` its sample-stream length.
-#[allow(clippy::too_many_arguments)]
+/// Returns `total` (= Σ per-thread kept counts); aborts via [`bin_overflow`]
+/// if that exceeds `buf.len()`.
 pub(crate) fn gen_unit_contiguous<T: Cell>(
     buf: &mut [T],
-    caps: &[usize],
     snapshots: &[Prng],
     params: &GridParams,
     chunk: impl Fn(usize) -> usize + Sync,
@@ -514,28 +707,58 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
     decimating: bool,
     full: bool,
 ) -> usize {
-    let num_cpus = caps.len();
-    debug_assert_eq!(snapshots.len(), num_cpus);
+    let num_cpus = snapshots.len();
+    let verbose = std::env::var_os("GEN_VERBOSE").is_some();
+    let sw = std::time::Instant::now();
 
-    // Phase 1: split buf into the caps-sized disjoint sub-regions, then let the
-    // Rayon global pool fill each one from its segment's orbit snapshot. One task
-    // per sub-region, so with the standard sizing (num_cpus == pool threads) each
-    // Rayon worker owns exactly one segment.
+    // Phase 1: exact per-thread kept counts. In plain mode (no decimation, no
+    // tradeoff) every draw is kept, so the counts are the stream lengths.
+    let counts: Vec<usize> = if !decimating && tradeoff_b == 0 {
+        (0..num_cpus).map(&chunk).collect()
+    } else {
+        (0..num_cpus)
+            .into_par_iter()
+            .map(|i| {
+                gen_count_dispatch::<T>(
+                    snapshots[i],
+                    params,
+                    chunk(i),
+                    pass,
+                    tradeoff_b,
+                    decimating,
+                    full,
+                )
+            })
+            .collect()
+    };
+    let total: usize = counts.iter().sum();
+    if total > buf.len() {
+        bin_overflow("a parallel generation unit");
+    }
+    if verbose {
+        eprint!("{{count: {:.3}s}} ", sw.elapsed().as_secs_f64());
+    }
+    let sw = std::time::Instant::now();
+
+    // Phase 2: split buf into the exactly-sized disjoint regions and let the
+    // Rayon global pool fill each one from its segment's orbit snapshot. One
+    // task per region, so with the standard sizing (num_cpus == pool threads)
+    // each Rayon worker owns exactly one segment.
     let regions: Vec<&mut [T]> = {
         let mut regions = Vec::with_capacity(num_cpus);
-        let mut rest = &mut buf[..];
-        for &cap in caps {
-            let (region, tail) = rest.split_at_mut(cap);
+        let mut rest = &mut buf[..total];
+        for &count in &counts {
+            let (region, tail) = rest.split_at_mut(count);
             regions.push(region);
             rest = tail;
         }
         regions
     };
-    let used: Vec<usize> = regions
+    regions
         .into_par_iter()
         .enumerate()
-        .map(|(i, region)| {
-            gen_pass_dispatch::<T>(
+        .for_each(|(i, region)| {
+            let (used, _) = gen_pass_dispatch::<T>(
                 snapshots[i],
                 params,
                 region,
@@ -544,13 +767,13 @@ pub(crate) fn gen_unit_contiguous<T: Cell>(
                 tradeoff_b,
                 decimating,
                 full,
-            )
-            .0
-        })
-        .collect();
-
-    // Phase 2: close the gaps so the kept points are contiguous.
-    compact_blocks(buf, caps, &used)
+            );
+            debug_assert_eq!(used, region.len());
+        });
+    if verbose {
+        eprint!("{{fill: {:.3}s}} ", sw.elapsed().as_secs_f64());
+    }
+    total
 }
 
 /// Generate (no sort) one plain pass: `points` fresh draws into `buf`. Returns
@@ -565,15 +788,15 @@ fn gen_plain<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL: bool>(
 ) -> usize {
     if DECIMATE {
         // Fixed-sample: scan scan_len candidate tuples, keep the accepted ones.
-        let mut len = 0usize;
-        for _ in 0..scan_len {
-            if let Some(x) = params.draw_decimate_once::<T, DIM, FULL>(prng) {
-                *buf.get_mut(len)
-                    .unwrap_or_else(|| bin_overflow("a parallel decimation chunk")) = x;
-                len += 1;
-            }
-        }
-        len
+        scan_keep::<T, DIM, true, FULL, false>(
+            prng,
+            params,
+            buf,
+            scan_len,
+            0,
+            0,
+            "a parallel decimation chunk",
+        )
     } else {
         for x in buf[..scan_len].iter_mut() {
             *x = params.draw::<T, DIM, FULL>(prng);
@@ -602,38 +825,16 @@ fn gen_pass_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL
     pass: u64,
     b: usize,
 ) -> (usize, Prng) {
-    let t = params.t;
-    let u = params.u;
-    let d = params.d;
-    let elem_width = if DECIMATE { u - d } else { u };
-    // Pass k holds the points whose top b bits of the combined index equal k
-    // (one contiguous value interval); see run_collision_tradeoff.
-    let key_shift = t * elem_width - b;
-
-    let key_of = |x: T| -> T {
-        let mut key = x;
-        key >>= key_shift;
-        key
-    };
-
     let mut local = snapshot;
-    let target = T::from_u64(pass);
-    let mut len = 0usize;
-    for _ in 0..stream_len {
-        let x = if DECIMATE {
-            match params.draw_decimate_once::<T, DIM, FULL>(&mut local) {
-                Some(x) => x,
-                None => continue,
-            }
-        } else {
-            params.draw::<T, DIM, FULL>(&mut local)
-        };
-        if key_of(x) == target {
-            *buf.get_mut(len)
-                .unwrap_or_else(|| bin_overflow("a tradeoff bin")) = x;
-            len += 1;
-        }
-    }
+    let len = scan_keep::<T, DIM, DECIMATE, FULL, true>(
+        &mut local,
+        params,
+        buf,
+        stream_len,
+        pass,
+        b,
+        "a tradeoff bin",
+    );
     // local has advanced by exactly stream_len draws regardless of pass
     // (every pass replays the same snapshot), so it is the orbit position from
     // which the next repetition should continue.
@@ -1023,52 +1224,3 @@ mod prescan_tests {
     }
 }
 
-// Pure compaction (no PRNG): every block's destination is the prefix sum of the
-// used counts, so the result is exactly the concatenation of the kept prefixes.
-#[cfg(test)]
-mod compact_tests {
-    use super::*;
-
-    /// Lay sentinel-padded blocks into a buffer of capacity `Σ caps`, run
-    /// `compact_blocks`, and check the kept prefixes come out concatenated.
-    fn check(caps: &[usize], used: &[usize]) {
-        let cap_total: usize = caps.iter().sum();
-        // Each kept slot of block i carries a unique value (i*1000 + j); padding
-        // and trailing gap carry a distinguishable sentinel.
-        let mut buf = vec![u64::MAX; cap_total];
-        let mut base = 0usize;
-        let mut expected: Vec<u64> = Vec::new();
-        for (i, (&cap, &len)) in caps.iter().zip(used).enumerate() {
-            for j in 0..len {
-                let v = (i as u64) * 1000 + j as u64;
-                buf[base + j] = v;
-                expected.push(v);
-            }
-            base += cap;
-        }
-        let total = compact_blocks::<u64>(&mut buf, caps, used);
-        assert_eq!(
-            total,
-            used.iter().sum::<usize>(),
-            "total for {caps:?}/{used:?}"
-        );
-        assert_eq!(
-            &buf[..total],
-            &expected[..],
-            "compacted for {caps:?}/{used:?}"
-        );
-    }
-
-    #[test]
-    fn compaction_cases() {
-        check(&[5, 5, 5], &[5, 5, 5]); // all full: plain no-op
-        check(&[5, 5, 5], &[3, 4, 2]); // generic gaps
-        check(&[5, 5, 5], &[0, 4, 2]); // first empty
-        check(&[5, 5, 5], &[3, 0, 2]); // middle empty
-        check(&[5, 5, 5], &[3, 4, 0]); // last empty
-        check(&[5, 5, 5], &[0, 0, 0]); // all empty
-        check(&[10, 1, 7], &[1, 1, 7]); // big leftward shift, full last block
-        check(&[4], &[2]); // single block
-        check(&[0, 5, 0, 3], &[0, 5, 0, 3]); // zero-capacity sub-regions
-    }
-}

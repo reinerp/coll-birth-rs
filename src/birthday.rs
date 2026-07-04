@@ -16,8 +16,8 @@ use crate::cell::Cell;
 use crate::cli::Args;
 use crate::common::{
     GridParams, OrbitPartition, alloc_mmap, bin_overflow, bits_read_desc, buffer_size,
-    count_adjacent_equals, decimation_desc, gen_unit_contiguous, join_mode_parts, scan_samples,
-    test_lambda,
+    count_adjacent_equals, decimation_desc, gen_unit_contiguous, join_mode_parts, scan_keep,
+    scan_samples, test_lambda,
 };
 use crate::prng::Prng;
 use crate::stats::{format_p_value, p_value};
@@ -42,15 +42,15 @@ pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL:
     eprint!("Generating points...");
     let len = if DECIMATE {
         let scan_len = scan_samples(points, params.t, params.d);
-        let mut len = 0usize;
-        for _ in 0..scan_len {
-            if let Some(x) = params.draw_decimate_once::<T, DIM, FULL>(prng) {
-                *buf.get_mut(len)
-                    .unwrap_or_else(|| bin_overflow("a decimated birthday run")) = x;
-                len += 1;
-            }
-        }
-        len
+        scan_keep::<T, DIM, true, FULL, false>(
+            prng,
+            params,
+            buf,
+            scan_len,
+            0,
+            0,
+            "a decimated birthday run",
+        )
     } else {
         for x in buf[..points].iter_mut() {
             *x = params.draw::<T, DIM, FULL>(prng);
@@ -59,14 +59,16 @@ pub fn run_birthday<T: Cell, const DIM: usize, const DECIMATE: bool, const FULL:
     };
     let pts = &mut buf[..len];
 
+    let key_bits = (params.t * (params.u - params.d)) as u32;
     eprint!("[{:.3}s] sorting...", sw.lap());
-    T::sort_mt(pts, &mut scratch[..]);
+    T::sort_mt(pts, &mut scratch[..], key_bits);
 
     eprint!("[{:.3}s] computing deltas...", sw.lap());
     compute_spacings(pts, params.cells);
 
+    // The spacings span the full cell range, so they need the full key width.
     eprint!("[{:.3}s] sorting deltas...", sw.lap());
-    T::sort_mt(pts, &mut scratch[..]);
+    T::sort_mt(pts, &mut scratch[..], key_bits);
 
     eprint!("[{:.3}s] counting collisions...", sw.lap());
     let c = count_adjacent_equals(pts);
@@ -416,10 +418,10 @@ pub fn run_birthday_parallel<T: Cell>(
     let chunk = |i: usize| base_chunk + if i < rem { 1 } else { 0 };
 
     let block_cap = |i: usize| buffer_size(chunk(i), partition_bits).max(1);
-    // Per-thread sub-region capacities of the one contiguous interval buffer; their
-    // prefix sums are the sub-region starts gen_unit_contiguous writes and compacts.
-    let caps: Box<[usize]> = (0..num_cpus).map(block_cap).collect();
-    let interval_cap: usize = caps.iter().sum();
+    // Capacity of the one contiguous interval buffer (count-then-fill packs the
+    // kept points exactly, but the total kept count is still random and needs
+    // the balls-into-bins headroom).
+    let interval_cap: usize = (0..num_cpus).map(block_cap).sum();
     // The spacing-class buffer accumulates one class's spacings across every value
     // interval; under decimation the kept count (hence spacing count) is random with
     // mean `points`, so the buffer needs the full t·d + b balls-into-bins headroom —
@@ -543,7 +545,7 @@ pub fn run_birthday_parallel<T: Cell>(
                 // left by under-filled sub-regions are compacted away.
                 let unit: &mut [T] = bytemuck::try_cast_slice_mut(&mut interval_buf).unwrap();
                 let total = gen_unit_contiguous::<T>(
-                    unit, &caps, &snapshots, &params, &chunk, k, b, decimating, full,
+                    unit, &snapshots, &params, &chunk, k, b, decimating, full,
                 );
                 // Each kept point lies in exactly one value interval, so summing
                 // the intervals of one distance sweep (the first executed) counts the
@@ -557,7 +559,13 @@ pub fn run_birthday_parallel<T: Cell>(
                 }
                 eprint!("[{:.3}s] sort...", isw.lap());
                 let interval: &mut [T] = &mut unit[..total];
-                T::sort_mt(interval, &mut scratch[..]);
+                // Within a value interval the top b bits are fixed, so only
+                // the low t·(u−d)−b bits vary.
+                T::sort_mt(
+                    interval,
+                    &mut scratch[..],
+                    (t * (args.u - d) - b) as u32,
+                );
                 let interval_max = interval[total - 1];
                 if global_min.is_none() {
                     global_min = Some(interval[0]);
@@ -662,7 +670,12 @@ pub fn run_birthday_parallel<T: Cell>(
                     }
                 }
             }
-            T::sort_mt(&mut class[..class_len], &mut scratch[..]);
+            // Spacings span the full cell range regardless of the class key.
+            T::sort_mt(
+                &mut class[..class_len],
+                &mut scratch[..],
+                (t * (args.u - d)) as u32,
+            );
             let class_coll = count_adjacent_equals(&class[..class_len]);
             rep_coll += class_coll;
             let classes_done = (j - pass_lo + 1) as f64;

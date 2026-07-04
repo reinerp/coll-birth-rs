@@ -46,12 +46,34 @@ fn main() {
 
     eprintln!("Generator: {}", Prng::NAME);
 
+    // Clear any inherited per-process THP disable (prctl PR_SET_THP_DISABLE,
+    // set by some sandboxes/harnesses and preserved across fork+exec). With it
+    // set, MADV_HUGEPAGE is ignored, every large buffer is base-paged, and the
+    // generate/sort phases become page-fault-bound: 4 KiB faults through a
+    // contended mmap_lock cost more than the work itself (measured 6x on the
+    // generation phase at 360 threads).
+    #[cfg(target_os = "linux")]
+    unsafe {
+        const PR_SET_THP_DISABLE: libc::c_int = 41;
+        libc::prctl(PR_SET_THP_DISABLE, 0u64, 0u64, 0u64, 0u64);
+    }
+
     // Report the kernel's transparent-huge-page policy once: if it reads "[never]",
     // MADV_HUGEPAGE is ignored system-wide and the large buffers stay base-paged
     // regardless of what alloc_mmap requests (a separate, system-level cause).
+    // Also report the per-process flag so an environment that re-disables THP
+    // (or a kernel that rejects the prctl) is visible in the log.
     #[cfg(target_os = "linux")]
-    if let Ok(thp) = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled") {
-        eprintln!("Transparent huge pages: {}", thp.trim());
+    {
+        if let Ok(thp) = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled") {
+            eprint!("Transparent huge pages: {}", thp.trim());
+        }
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            if let Some(line) = status.lines().find(|l| l.starts_with("THP_enabled")) {
+                eprint!(" (process: {})", line.split_whitespace().nth(1).unwrap_or("?"));
+            }
+        }
+        eprintln!();
     }
 
     let cells = BigUint::from(2u32)

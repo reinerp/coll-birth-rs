@@ -44,7 +44,13 @@ pub trait Cell:
     /// huge pages and prefaulted — see `alloc_mmap`) because it sees the
     /// repetition/pass loops, so the buffer is reused instead of being
     /// mapped and unmapped around every sort.
-    fn sort_mt(v: &mut [Self], scratch: &mut [Self]);
+    ///
+    /// `num_bits` is the width of the varying key: all elements must agree on
+    /// every bit at or above `num_bits`. Passing the true width (e.g.
+    /// t·(u−d)−b when decimation strips low bits and a tradeoff pass fixes the
+    /// top ones) keeps the radix digits balanced; a slack width concentrates
+    /// the top digit into a fraction of the buckets and slows the sort.
+    fn sort_mt(v: &mut [Self], scratch: &mut [Self], num_bits: u32);
 
     /// Sorts `v` in place using a single-threaded radix sort.
     fn sort_st(v: &mut [Self]);
@@ -71,7 +77,7 @@ macro_rules! impl_cell {
                     (1 as $t).wrapping_shl(b as u32).wrapping_sub(1)
                 }
             }
-            fn sort_mt(_v: &mut [Self], _scratch: &mut [Self]) {
+            fn sort_mt(_v: &mut [Self], _scratch: &mut [Self], _num_bits: u32) {
                 panic!()
                 // v.voracious_mt_sort(parallelism());
             }
@@ -111,8 +117,8 @@ impl Cell for u64 {
             (1 as u64).wrapping_shl(b as u32).wrapping_sub(1)
         }
     }
-    fn sort_mt(v: &mut [Self], scratch: &mut [Self]) {
-        sorting::sort_uniform_u64s(v, 64, scratch);
+    fn sort_mt(v: &mut [Self], scratch: &mut [Self], num_bits: u32) {
+        sorting::sort_uniform_u64s(v, num_bits, scratch);
     }
     fn sort_st(v: &mut [Self]) {
         // In-place American-flag (MSD) radix sort. Unlike voracious_sort,
@@ -191,6 +197,24 @@ pub fn decimate_once<T: Cell, const DIM: usize, const FULL: bool>(
     s: usize,
     d: usize,
 ) -> Option<T> {
+    match decimate_candidate::<T, DIM, FULL>(prng, t_rt, u, s, d) {
+        (x, true) => Some(x),
+        (_, false) => None,
+    }
+}
+
+/// Branchless-friendly form of [`decimate_once`]: always assembles the dense
+/// index and returns it with an *accepted* flag instead of an `Option`, so hot
+/// scan loops can turn acceptance into a data dependency (unconditional store,
+/// conditionally advanced cursor) rather than an unpredictable branch.
+#[inline]
+pub fn decimate_candidate<T: Cell, const DIM: usize, const FULL: bool>(
+    prng: &mut Prng,
+    t_rt: usize,
+    u: usize,
+    s: usize,
+    d: usize,
+) -> (T, bool) {
     let combined_shift = 64 - u - s;
     let extract_mask: u64 = if u >= 64 { !0 } else { (1u64 << u) - 1 };
 
@@ -216,7 +240,7 @@ pub fn decimate_once<T: Cell, const DIM: usize, const FULL: bool>(
         x <<= width;
         x ^= T::from_u64(raw >> d);
     }
-    if rejected { None } else { Some(x) }
+    (x, !rejected)
 }
 
 #[cfg(test)]

@@ -26,6 +26,7 @@ num = { version = "0.4.0", features = ["num-bigint"] }
 voracious_radix_sort = { version = "1.2.0", features = ["rayon", "voracious_multithread"] }
 cdflib = "0.4.2"
 arrayvec = "0.7"
+libc = "0.2"
 
 [dev-dependencies]
 anyhow = "1.0.79"
