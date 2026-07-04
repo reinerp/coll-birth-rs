@@ -4,7 +4,6 @@ use rayon::iter::IntoParallelIterator;
 use rayon::iter::IntoParallelRefIterator as _;
 use rayon::iter::ParallelIterator as _;
 
-const RADIX: usize = 1 << LG_RADIX;
 const LG_RADIX: usize = 8;
 const MAX_PASSES: usize = 5;
 const MAX_SORT_LEN: usize = 1 << (MAX_PASSES * LG_RADIX);

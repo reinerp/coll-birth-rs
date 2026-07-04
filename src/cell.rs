@@ -7,11 +7,10 @@
 //! The [`Cell`] trait abstracts over the integer types used to store cell indices
 //! (`u32`, `u64`, `u128`) for the collision and birthday-spacings tests.
 
-use voracious_radix_sort::{RadixSort, ska_sort};
+use voracious_radix_sort::ska_sort;
 
 use crate::prng::Prng;
 use crate::sorting;
-use crate::util::parallelism;
 
 /// Storage and operations required for a cell-index integer type.
 pub trait Cell:

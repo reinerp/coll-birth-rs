@@ -32,10 +32,10 @@ libc = "0.2"
 anyhow = "1.0.79"
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 opt-level = 3
 panic = "abort"
-codegen-units = 1
+codegen-units = 16
 
 # Each feature corresponds to a PRNG defined in the prng module. Every PRNG feature
 # enables the internal `_prng` marker, which lets the build emit a single clear error
