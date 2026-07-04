@@ -20,7 +20,7 @@ use crate::common::{
 };
 use crate::prng::Prng;
 use crate::stats::{expected_collisions, format_p_value, p_value};
-use crate::util::{Stopwatch, parallelism};
+use crate::util::Stopwatch;
 
 /// Runs a collision test.
 ///
@@ -132,7 +132,6 @@ pub fn run_collision_tradeoff<T: Cell, const DIM: usize, const DECIMATE: bool>(
             "a collision tradeoff pass",
         );
         eprint!("[{:.3}s] sort...", sw.lap());
-        eprint!("parallelism: {}", parallelism());
 
         let slice = &mut buf[..len];
         // Within a pass the top b bits are fixed, so only the low
@@ -224,7 +223,6 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
             "a decimated collision run",
         );
         eprint!("[{:.3}s] sort...", sw.lap());
-        eprint!("parallelism: {}", parallelism());
         T::sort_mt(&mut buf[..len], &mut scratch[..], (t * (params.u - d)) as u32);
         eprint!("[{:.3}s] count...", sw.lap());
         let c = count_adjacent_equals(&buf[..len]);
@@ -260,7 +258,6 @@ pub fn run_collision_decimate<T: Cell, const DIM: usize, const FULL: bool>(
         );
         scanned = target_scanned;
         eprint!("[{:.3}s] sort...", sw.lap());
-        eprint!("parallelism: {}", parallelism());
 
         T::sort_mt(&mut aux[..got], &mut scratch[..], (t * (params.u - d)) as u32);
         eprint!("[{:.3}s] merge...", sw.lap());
@@ -451,7 +448,6 @@ pub fn run_test_parallel<T: Cell>(
                     stage_buf, &snapshots, &params, &schunk, 0, 0, true, full,
                 );
                 eprint!("[{:.3}s] sort...", psw.lap());
-                eprint!("parallelism: {}", parallelism());
 
                 // Phase 2: sort the contiguous stage run.
                 T::sort_mt(
@@ -542,7 +538,6 @@ pub fn run_test_parallel<T: Cell>(
                 buf, &snapshots, &params, &chunk, pass, tradeoff_b, decimating, full,
             );
             eprint!("[{:.3}s] sort...", psw.lap());
-            eprint!("parallelism: {}", parallelism());
 
             // Phase 2: one sort over the whole contiguous unit.
             // Decimation strips d low bits per element and a tradeoff pass
